@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plaagscouting Kwekerij</title>
+<meta name="theme-color" content="#155724">
+<meta name="description" content="Registratie en analyse van plaaginsecten per afdeling tijdens het scouten in de kwekerij.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scouting">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>🐞 Plaagscouting</h1>
+  <button id="settingsBtn" class="icon-btn" title="Instellingen &amp; back-up" aria-label="Instellingen">⚙️</button>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab-btn active" data-tab="scouten" role="tab" aria-selected="true">Scouten</button>
+  <button class="tab-btn" data-tab="analyse" role="tab" aria-selected="false">Analyse</button>
+</nav>
+
+<main id="scouten" class="tab-panel active">
+
+  <section class="card selectors">
+    <label>Afdeling
+      <select id="afdelingSelect"></select>
+    </label>
+    <label>Vak
+      <select id="vakSelect"></select>
+    </label>
+  </section>
+
+  <section class="card" id="cardStatusCard">
+    <h2>Vangkaart status <span id="vakTitel"></span></h2>
+    <div id="cardStatusBody"></div>
+    <div class="btn-row">
+      <button id="btnGedraaid" class="btn secondary">🔄 Kaart gedraaid</button>
+      <button id="btnVervangen" class="btn secondary">🆕 Kaart vervangen</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Nieuwe telling</h2>
+    <form id="tellingForm">
+      <label>Datum
+        <input type="date" id="tellingDatum" required>
+      </label>
+      <div class="insect-grid">
+        <label>🪰 Trips
+          <input type="number" min="0" inputmode="numeric" id="inputTrips" value="0" required>
+        </label>
+        <label>🐛 Luis
+          <input type="number" min="0" inputmode="numeric" id="inputLuis" value="0" required>
+        </label>
+        <label>🐚 Wolluis
+          <input type="number" min="0" inputmode="numeric" id="inputWolluis" value="0" required>
+        </label>
+        <label>🦟 Witte vlieg
+          <input type="number" min="0" inputmode="numeric" id="inputWitteVlieg" value="0" required>
+        </label>
+      </div>
+      <label>Notitie (optioneel)
+        <textarea id="inputNotitie" rows="2" placeholder="Bijv. kaart beschadigd, veel spinnenwebben, ..."></textarea>
+      </label>
+      <button type="submit" class="btn primary">Telling opslaan</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Historie dit vak</h2>
+    <div id="vakHistorie" class="historie-list"></div>
+  </section>
+
+  <section class="card">
+    <h2>Duponchelia vangbakken <span id="duponcheliaAfdelingLabel"></span></h2>
+    <div id="duponcheliaList"></div>
+  </section>
+
+</main>
+
+<main id="analyse" class="tab-panel">
+
+  <section class="card selectors">
+    <label>Afdeling
+      <select id="analyseAfdelingSelect">
+        <option value="alle">Alle afdelingen</option>
+      </select>
+    </label>
+    <label>Periode
+      <select id="analysePeriodeSelect">
+        <option value="14">Laatste 2 weken</option>
+        <option value="42" selected>Laatste 6 weken</option>
+        <option value="90">Laatste 3 maanden</option>
+        <option value="alles">Alles</option>
+      </select>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>Totalen insecten</h2>
+    <div id="totalsGrid" class="totals-grid"></div>
+  </section>
+
+  <section class="card">
+    <h2>⚠️ Aandachtspunten</h2>
+    <div id="attentionList"></div>
+  </section>
+
+  <section class="card">
+    <h2>Insecten per vak</h2>
+    <div class="chart-wrap">
+      <svg id="chartPerVak" class="chart"></svg>
+    </div>
+    <div class="table-wrap">
+      <table id="vakTable">
+        <thead>
+          <tr><th>Vak</th><th>Trips</th><th>Luis</th><th>Wolluis</th><th>W.vlieg</th><th>Laatste telling</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Duponchelia overzicht</h2>
+    <div id="duponcheliaAnalyse"></div>
+  </section>
+
+  <section class="card">
+    <h2>Analyse delen / mailen</h2>
+    <p class="muted">Verstuur een samenvatting (tekst) en CSV-bestand met alle details naar collega's.</p>
+    <button id="btnShareAnalyse" class="btn primary">📤 Analyse delen / mailen</button>
+    <button id="btnDownloadCsv" class="btn secondary">⬇️ CSV downloaden</button>
+  </section>
+
+</main>
+
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Instellingen &amp; back-up</h2>
+      <button id="closeSettings" class="icon-btn" aria-label="Sluiten">✕</button>
+    </div>
+    <label>Standaard e-mail collega's (optioneel)
+      <input type="email" id="defaultEmails" placeholder="collega1@bedrijf.nl, collega2@bedrijf.nl">
+    </label>
+    <div class="settings-row">
+      <div>Kaart max. dagen per kant</div>
+      <input type="number" id="cardMaxDays" min="1" style="width:5rem">
+    </div>
+    <div class="settings-row">
+      <div>Feromoon max. dagen</div>
+      <input type="number" id="pheromoneMaxDays" min="1" style="width:5rem">
+    </div>
+    <button id="saveSettings" class="btn primary">Opslaan</button>
+    <hr>
+    <h3>Back-up</h3>
+    <p class="muted">Alle data staat lokaal in deze browser/telefoon. Maak regelmatig een back-up.</p>
+    <div class="btn-row">
+      <button id="btnExportBackup" class="btn secondary">⬇️ Back-up exporteren</button>
+      <button id="btnImportBackup" class="btn secondary">⬆️ Back-up importeren</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json" class="hidden">
+    <hr>
+    <button id="btnResetData" class="btn danger">🗑️ Alle data wissen</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
