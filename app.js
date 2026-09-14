@@ -6,12 +6,30 @@ const DEPARTMENTS = ['28', '29', '30'];
 const VAK_COUNT = 20;
 const DUP_COUNT = 4;
 
+// Small schematic SVG silhouettes (no matching emoji exists for these pests).
+const BUG_ICONS = {
+  trips: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><g fill="none" stroke="#d4a017" stroke-width="1" stroke-linecap="round"><ellipse cx="13" cy="12" rx="7.5" ry="1.8" fill="#d4a017" stroke="none"/><circle cx="5.5" cy="12" r="1.6" fill="#8a6d0f" stroke="none"/><line x1="4.2" y1="10.5" x2="2" y2="8.5"/><line x1="4.2" y1="13.5" x2="2" y2="15.5"/><line x1="9" y1="10.5" x2="9" y2="7.5"/><line x1="12" y1="10.5" x2="12" y2="7.2"/><line x1="15" y1="10.5" x2="15" y2="7.5"/><line x1="9" y1="13.5" x2="9" y2="16.5"/><line x1="12" y1="13.5" x2="12" y2="16.8"/><line x1="15" y1="13.5" x2="15" y2="16.5"/></g></svg>`,
+  luis: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><ellipse cx="12" cy="14.5" rx="6" ry="7" fill="#2e7d32"/><circle cx="12" cy="6" r="2.4" fill="#1e5c22"/><line x1="10.5" y1="4.3" x2="8.5" y2="1.8" stroke="#1e5c22" stroke-width="1" stroke-linecap="round"/><line x1="13.5" y1="4.3" x2="15.5" y2="1.8" stroke="#1e5c22" stroke-width="1" stroke-linecap="round"/></svg>`,
+  wolluis: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><g stroke="#8d7bb0" stroke-width="1.1" stroke-linecap="round"><line x1="19" y1="12" x2="23" y2="12"/><line x1="17.7" y1="14.9" x2="20.1" y2="16.7"/><line x1="14.2" y1="16.8" x2="15.1" y2="19.6"/><line x1="9.8" y1="16.8" x2="8.9" y2="19.6"/><line x1="6.3" y1="14.9" x2="3.9" y2="16.7"/><line x1="5" y1="12" x2="1" y2="12"/><line x1="6.3" y1="9.1" x2="3.9" y2="7.3"/><line x1="9.8" y1="7.2" x2="8.9" y2="4.4"/><line x1="14.2" y1="7.2" x2="15.1" y2="4.4"/><line x1="17.7" y1="9.1" x2="20.1" y2="7.3"/></g><ellipse cx="12" cy="12" rx="7" ry="5" fill="#f4f1ea" stroke="#8d7bb0" stroke-width="1"/></svg>`,
+  witteVlieg: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polygon points="12,8 3,18 12,14" fill="#eef8fd" stroke="#3fa9d6" stroke-width="1"/><polygon points="12,8 21,18 12,14" fill="#eef8fd" stroke="#3fa9d6" stroke-width="1"/><line x1="12" y1="8" x2="12" y2="18" stroke="#4a4a4a" stroke-width="1"/><circle cx="12" cy="6.8" r="1.3" fill="#4a4a4a"/><line x1="11" y1="5.5" x2="9" y2="3" stroke="#4a4a4a" stroke-width="0.8" stroke-linecap="round"/><line x1="13" y1="5.5" x2="15" y2="3" stroke="#4a4a4a" stroke-width="0.8" stroke-linecap="round"/></svg>`
+};
+
 const INSECTS = [
-  { key: 'trips', label: 'Trips', emoji: '🪰', color: '#d4a017' },
-  { key: 'luis', label: 'Luis', emoji: '🐛', color: '#2e7d32' },
-  { key: 'wolluis', label: 'Wolluis', emoji: '🐚', color: '#8d7bb0' },
-  { key: 'witteVlieg', label: 'Witte vlieg', emoji: '🦟', color: '#4fc3f7' }
+  { key: 'trips', label: 'Trips', color: '#d4a017' },
+  { key: 'luis', label: 'Luis', color: '#2e7d32' },
+  { key: 'wolluis', label: 'Wolluis', color: '#8d7bb0' },
+  { key: 'witteVlieg', label: 'Witte vlieg', color: '#4fc3f7' }
 ];
+
+function bugIcon(key) {
+  return `<span class="bug-icon">${BUG_ICONS[key] || ''}</span>`;
+}
+
+function renderBugIconPlaceholders() {
+  document.querySelectorAll('[data-bug]').forEach(el => {
+    el.innerHTML = BUG_ICONS[el.dataset.bug] || '';
+  });
+}
 
 const DATA_KEY = 'scouting_data_v1';
 const SETTINGS_KEY = 'scouting_settings_v1';
@@ -243,7 +261,7 @@ function renderVakHistorie() {
     <div class="hist-item">
       <div>
         <div><strong>${fmtDate(r.date)}</strong> · kant ${r.side}</div>
-        <div class="meta">🪰${r.trips} · 🐛${r.luis} · 🐚${r.wolluis} · 🦟${r.witteVlieg}${r.notitie ? ' · ' + r.notitie : ''}</div>
+        <div class="meta">${bugIcon('trips')}${r.trips} · ${bugIcon('luis')}${r.luis} · ${bugIcon('wolluis')}${r.wolluis} · ${bugIcon('witteVlieg')}${r.witteVlieg}${r.notitie ? ' · ' + r.notitie : ''}</div>
       </div>
       <button class="del-btn" data-id="${r.id}" aria-label="Verwijderen">🗑️</button>
     </div>
@@ -377,7 +395,7 @@ function renderTotals(rows) {
   document.getElementById('totalsGrid').innerHTML = INSECTS.map(i => `
     <div class="total-tile">
       <span class="num">${totals[i.key]}</span>
-      <span class="lbl">${i.emoji} ${i.label}</span>
+      <span class="lbl">${bugIcon(i.key)}${i.label}</span>
     </div>
   `).join('');
 }
@@ -685,6 +703,7 @@ function initServiceWorker() {
 /* ---------- Init ---------- */
 
 function init() {
+  renderBugIconPlaceholders();
   initTabs();
   initSelectors();
   initCardActions();
