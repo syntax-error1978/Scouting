@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["claude/pest-scouting-app-x2bgdx"]
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
