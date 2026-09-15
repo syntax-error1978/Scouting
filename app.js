@@ -625,6 +625,7 @@ function initShareButtons() {
 
 function initSettingsModal() {
   const modal = document.getElementById('settingsModal');
+  document.getElementById('copyrightYear').textContent = new Date().getFullYear();
   document.getElementById('settingsBtn').addEventListener('click', () => {
     document.getElementById('defaultEmails').value = settings.defaultEmails;
     document.getElementById('cardMaxDays').value = settings.cardMaxDays;

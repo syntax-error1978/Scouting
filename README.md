@@ -1,6 +1,6 @@
-# Scouting
+# Plantworld Scout-app
 
-Plaagscouting-app voor op de telefoon, voor gebruik tijdens het scouten van plaaginsecten in de kwekerij.
+Plaagscouting-app voor op de telefoon, voor gebruik tijdens het scouten van plaaginsecten in de Plantworld-kwekerij.
 
 ## Wat kan de app?
 
