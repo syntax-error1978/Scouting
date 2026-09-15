@@ -482,20 +482,45 @@ function renderChart(rows) {
 
 function renderDuponcheliaAnalyse(deps, cutoff) {
   const el = document.getElementById('duponcheliaAnalyse');
+  const rows = [];
   let html = '';
   deps.forEach(dep => {
     const dup = data.departments[dep].duponchelia;
-    const rows = Object.keys(dup).map(num => {
+    Object.keys(dup).forEach(num => {
       const trap = dup[num];
       const inPeriod = trap.readings.filter(r => !cutoff || r.date >= cutoff);
       const total = inPeriod.reduce((s, r) => s + r.aantal, 0);
       const days = daysSince(trap.pheromoneStartDate);
-      const warn = days >= settings.pheromoneMaxDays;
-      return `<div class="status-line"><span>Vangbak ${num} (afd. ${dep})</span><span class="val">${total} in periode ${warn ? '· <span class="badge warn">⚠️ feromoon</span>' : ''}</span></div>`;
-    }).join('');
-    html += rows;
+      const warn = days !== null && days >= settings.pheromoneMaxDays;
+      rows.push({ label: `${dep}-${num}`, total, warn });
+      html += `<div class="status-line"><span>Vangbak ${num} (afd. ${dep})</span><span class="val">${total} in periode ${warn ? '· <span class="badge warn">⚠️ feromoon</span>' : ''}</span></div>`;
+    });
   });
   el.innerHTML = html || '<p class="muted">Geen data.</p>';
+  renderDupChart(rows);
+}
+
+function renderDupChart(rows) {
+  const svg = document.getElementById('chartDuponchelia');
+  if (!rows.length) { svg.innerHTML = ''; return; }
+  const maxTotal = Math.max(1, ...rows.map(r => r.total));
+  const barW = 26, gap = 10, leftPad = 4, bottomPad = 26, topPad = 10;
+  const width = rows.length * (barW + gap) + leftPad;
+  const chartH = 180 - bottomPad - topPad;
+  svg.setAttribute('viewBox', `0 0 ${width} 180`);
+  svg.setAttribute('width', width);
+
+  let bars = '';
+  rows.forEach((r, idx) => {
+    const x = leftPad + idx * (barW + gap);
+    const h = Math.max((r.total / maxTotal) * chartH, r.total > 0 ? 1 : 0);
+    const y = topPad + chartH - h;
+    const color = r.warn ? 'var(--accent)' : 'var(--primary)';
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h || 1}" style="fill:${h ? color : 'var(--border)'}"><title>Vangbak ${r.label}: ${r.total}${r.warn ? ' (feromoon aan vervanging toe)' : ''}</title></rect>`;
+    bars += `<text x="${x + barW / 2}" y="${180 - 8}" font-size="9" text-anchor="middle" fill="currentColor">${r.label}</text>`;
+  });
+
+  svg.innerHTML = `<g style="color:var(--muted)">${bars}</g>`;
 }
 
 function renderAnalyse() {

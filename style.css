@@ -67,7 +67,7 @@ body {
   color: var(--primary-text);
 }
 .app-header h1 {
-  font-size: 1.05rem;
+  font-size: 1.3rem;
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
