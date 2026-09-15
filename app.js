@@ -125,6 +125,7 @@ function saveSettings() {
 
 let currentAfdeling = DEPARTMENTS[0];
 let currentVak = '1';
+let currentDup = '1';
 
 /* ---------- Toast ---------- */
 
@@ -172,6 +173,18 @@ function initSelectors() {
   });
 
   document.getElementById('tellingDatum').value = todayStr();
+}
+
+function initDupSelector() {
+  const dupSelect = document.getElementById('dupSelect');
+  let opts = '';
+  for (let i = 1; i <= DUP_COUNT; i++) opts += `<option value="${i}">Vangbak ${i}</option>`;
+  dupSelect.innerHTML = opts;
+  dupSelect.value = currentDup;
+  dupSelect.addEventListener('change', e => {
+    currentDup = e.target.value;
+    renderDuponchelia();
+  });
 }
 
 function renderVakSelect() {
@@ -284,56 +297,50 @@ function renderDuponchelia() {
   const el = document.getElementById('duponcheliaList');
   const maxDays = settings.pheromoneMaxDays;
 
-  el.innerHTML = Object.keys(dep.duponchelia).map(num => {
-    const trap = dep.duponchelia[num];
-    const days = daysSince(trap.pheromoneStartDate);
-    const warn = days !== null && days >= maxDays;
-    const lastReading = [...trap.readings].sort((a, b) => b.date.localeCompare(a.date))[0];
-    return `
-      <div class="dup-trap">
-        <div class="row1">
-          <strong>Vangbak ${num}</strong>
-          ${warn ? `<span class="badge warn">⚠️ feromoon vervangen</span>` : `<span class="badge ok">feromoon OK (${days}d)</span>`}
-        </div>
-        <div class="muted" style="margin-bottom:0.5rem;">Feromoon geplaatst: ${fmtDate(trap.pheromoneStartDate)}${lastReading ? ` · Laatste telling: ${lastReading.aantal} op ${fmtDate(lastReading.date)}` : ''}</div>
-        <div class="count-row">
-          <label>Aantal deze week
-            <input type="number" min="0" inputmode="numeric" id="dupCount-${num}" value="0">
-          </label>
-          <label style="max-width:8.5rem;">Datum
-            <input type="date" id="dupDate-${num}" value="${todayStr()}">
-          </label>
-          <button class="btn secondary" data-save-dup="${num}">Opslaan</button>
-        </div>
-        <div class="btn-row" style="margin-top:0.5rem;">
-          <button class="btn secondary" data-replace-pher="${num}">🆕 Feromoon vervangen</button>
-        </div>
-      </div>
-    `;
-  }).join('');
+  const num = currentDup;
+  const trap = dep.duponchelia[num];
+  const days = daysSince(trap.pheromoneStartDate);
+  const warn = days !== null && days >= maxDays;
+  const lastReading = [...trap.readings].sort((a, b) => b.date.localeCompare(a.date))[0];
 
-  el.querySelectorAll('[data-save-dup]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const num = btn.dataset.saveDup;
-      const trap = data.departments[currentAfdeling].duponchelia[num];
-      const aantal = Number(document.getElementById(`dupCount-${num}`).value) || 0;
-      const date = document.getElementById(`dupDate-${num}`).value || todayStr();
-      trap.readings.push({ id: genId(), date, aantal });
-      saveData();
-      renderDuponchelia();
-      toast(`Telling vangbak ${num} opgeslagen`);
-    });
+  el.innerHTML = `
+    <div class="dup-trap">
+      <div class="row1">
+        <strong>Vangbak ${num}</strong>
+        ${warn ? `<span class="badge warn">⚠️ feromoon vervangen</span>` : `<span class="badge ok">feromoon OK (${days}d)</span>`}
+      </div>
+      <div class="muted" style="margin-bottom:0.5rem;">Feromoon geplaatst: ${fmtDate(trap.pheromoneStartDate)}${lastReading ? ` · Laatste telling: ${lastReading.aantal} op ${fmtDate(lastReading.date)}` : ''}</div>
+      <div class="count-row">
+        <label class="field-aantal">Aantal
+          <input type="number" min="0" inputmode="numeric" id="dupCount-${num}" value="0">
+        </label>
+        <label class="field-datum">Datum
+          <input type="date" id="dupDate-${num}" value="${todayStr()}">
+        </label>
+        <button class="btn secondary" data-save-dup="${num}">Opslaan</button>
+      </div>
+      <div class="btn-row" style="margin-top:0.5rem;">
+        <button class="btn secondary" data-replace-pher="${num}">🆕 Feromoon vervangen</button>
+      </div>
+    </div>
+  `;
+
+  el.querySelector('[data-save-dup]').addEventListener('click', () => {
+    const trap2 = data.departments[currentAfdeling].duponchelia[num];
+    const aantal = Number(document.getElementById(`dupCount-${num}`).value) || 0;
+    const date = document.getElementById(`dupDate-${num}`).value || todayStr();
+    trap2.readings.push({ id: genId(), date, aantal });
+    saveData();
+    renderDuponchelia();
+    toast(`Telling vangbak ${num} opgeslagen`);
   });
 
-  el.querySelectorAll('[data-replace-pher]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const num = btn.dataset.replacePher;
-      const trap = data.departments[currentAfdeling].duponchelia[num];
-      trap.pheromoneStartDate = todayStr();
-      saveData();
-      renderDuponchelia();
-      toast(`Feromoon vangbak ${num} vervangen`);
-    });
+  el.querySelector('[data-replace-pher]').addEventListener('click', () => {
+    const trap2 = data.departments[currentAfdeling].duponchelia[num];
+    trap2.pheromoneStartDate = todayStr();
+    saveData();
+    renderDuponchelia();
+    toast(`Feromoon vangbak ${num} vervangen`);
   });
 }
 
@@ -706,6 +713,7 @@ function init() {
   renderBugIconPlaceholders();
   initTabs();
   initSelectors();
+  initDupSelector();
   initCardActions();
   initTellingForm();
   initAnalyseSelectors();

@@ -37,15 +37,6 @@
     </label>
   </section>
 
-  <section class="card" id="cardStatusCard">
-    <h2>Vangkaart status <span id="vakTitel"></span></h2>
-    <div id="cardStatusBody"></div>
-    <div class="btn-row">
-      <button id="btnGedraaid" class="btn secondary">🔄 Kaart gedraaid</button>
-      <button id="btnVervangen" class="btn secondary">🆕 Kaart vervangen</button>
-    </div>
-  </section>
-
   <section class="card">
     <h2>Nieuwe telling</h2>
     <form id="tellingForm">
@@ -73,6 +64,15 @@
     </form>
   </section>
 
+  <section class="card" id="cardStatusCard">
+    <h2>Vangkaart status <span id="vakTitel"></span></h2>
+    <div id="cardStatusBody"></div>
+    <div class="btn-row">
+      <button id="btnGedraaid" class="btn secondary">🔄 Kaart gedraaid</button>
+      <button id="btnVervangen" class="btn secondary">🆕 Kaart vervangen</button>
+    </div>
+  </section>
+
   <section class="card">
     <h2>Historie dit vak</h2>
     <div id="vakHistorie" class="historie-list"></div>
@@ -80,6 +80,9 @@
 
   <section class="card">
     <h2>Duponchelia vangbakken <span id="duponcheliaAfdelingLabel"></span></h2>
+    <label>Vangbak
+      <select id="dupSelect"></select>
+    </label>
     <div id="duponcheliaList"></div>
   </section>
 

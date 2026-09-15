@@ -198,8 +198,17 @@ textarea { resize: vertical; font-family: inherit; }
 }
 .dup-trap .row1 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 .dup-trap .count-row { display: flex; gap: 0.5rem; align-items: flex-end; }
-.dup-trap .count-row label { flex: 1; margin-bottom: 0; }
-.dup-trap .count-row button { white-space: nowrap; }
+.dup-trap .count-row label { margin-bottom: 0; white-space: nowrap; }
+.dup-trap .count-row .field-aantal { flex: 0 1 5.5rem; }
+.dup-trap .count-row .field-datum { flex: 1 1 auto; }
+.dup-trap .count-row select,
+.dup-trap .count-row input { margin-top: 0.3rem; }
+.dup-trap .count-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.55rem 1rem;
+  align-self: flex-end;
+}
 
 .muted { color: var(--muted); font-size: 0.85rem; }
 
