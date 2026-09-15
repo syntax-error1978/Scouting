@@ -721,6 +721,17 @@ function initSettingsModal() {
     toast('Alle data gewist');
     document.getElementById('settingsModal').classList.add('hidden');
   });
+
+  document.getElementById('btnCheckUpdate').addEventListener('click', async () => {
+    if (!('serviceWorker' in navigator)) { toast('Niet ondersteund in deze browser'); window.location.reload(); return; }
+    toast('Bezig met controleren op updates...');
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg) await reg.update();
+    // De service worker activeert nieuwe versies automatisch (skipWaiting) en
+    // herlaadt de pagina dan zelf via de controllerchange-listener; deze
+    // herlaad-timer is een fallback voor het geval er niets te activeren viel.
+    setTimeout(() => window.location.reload(), 800);
+  });
 }
 
 /* ---------- Service worker ---------- */
@@ -728,7 +739,19 @@ function initSettingsModal() {
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registratie mislukt', err));
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        reg.update();
+      }).catch(err => console.warn('SW registratie mislukt', err));
+
+      // Zodra een nieuwe service worker de pagina overneemt (na een update),
+      // eenmalig herladen zodat de nieuwe versie direct zichtbaar is —
+      // anders blijft een al geopende/geinstalleerde PWA de oude cache tonen.
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return;
+        reloaded = true;
+        window.location.reload();
+      });
     });
   }
 }
