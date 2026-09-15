@@ -2,9 +2,8 @@
 
 /* ---------- Constants ---------- */
 
-const DEPARTMENTS = ['28', '29', '30'];
-const VAK_COUNT = 20;
-const DUP_COUNT = 4;
+const DEFAULT_VAK_COUNT = 20;
+const DEFAULT_DUP_COUNT = 4;
 
 // Small schematic SVG silhouettes (no matching emoji exists for these pests).
 const BUG_ICONS = {
@@ -62,26 +61,70 @@ function escapeCsv(val) {
   return s;
 }
 
+function escapeHtml(val) {
+  return String(val ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 /* ---------- Data layer ---------- */
 
+function makeVakken(count) {
+  const vakken = {};
+  for (let i = 1; i <= count; i++) {
+    vakken[i] = { card: { side: 'A', sideStartDate: todayStr() }, readings: [] };
+  }
+  return vakken;
+}
+
+function makeDuponchelia(count) {
+  const duponchelia = {};
+  for (let i = 1; i <= count; i++) {
+    duponchelia[i] = { pheromoneStartDate: todayStr(), readings: [] };
+  }
+  return duponchelia;
+}
+
+function makeDepartment(name, vakCount = DEFAULT_VAK_COUNT, duponcheliaCount = DEFAULT_DUP_COUNT) {
+  return {
+    id: genId(),
+    name,
+    vakCount,
+    duponcheliaCount,
+    vakken: makeVakken(vakCount),
+    duponchelia: makeDuponchelia(duponcheliaCount)
+  };
+}
+
 function defaultData() {
-  const departments = {};
-  DEPARTMENTS.forEach(dep => {
-    const vakken = {};
-    for (let i = 1; i <= VAK_COUNT; i++) {
-      vakken[i] = { card: { side: 'A', sideStartDate: todayStr() }, readings: [] };
-    }
-    const duponchelia = {};
-    for (let i = 1; i <= DUP_COUNT; i++) {
-      duponchelia[i] = { pheromoneStartDate: todayStr(), readings: [] };
-    }
-    departments[dep] = { vakken, duponchelia };
-  });
-  return { departments };
+  return {
+    departments: [
+      makeDepartment('28'),
+      makeDepartment('29'),
+      makeDepartment('30')
+    ]
+  };
 }
 
 function defaultSettings() {
   return { cardMaxDays: 14, pheromoneMaxDays: 42, defaultEmails: '' };
+}
+
+// Older versions stored departments as a plain object keyed by department
+// name (e.g. {"28": {...}}). Convert that into the current array-of-objects
+// shape (stable id, editable name) without losing any recorded data.
+function migrateDepartments(oldObj) {
+  return Object.keys(oldObj).map(name => {
+    const d = oldObj[name] || {};
+    const vakken = d.vakken || {};
+    const duponchelia = d.duponchelia || {};
+    return {
+      id: genId(),
+      name,
+      vakCount: Object.keys(vakken).length,
+      duponcheliaCount: Object.keys(duponchelia).length,
+      vakken,
+      duponchelia
+    };
+  });
 }
 
 let data = loadData();
@@ -92,11 +135,10 @@ function loadData() {
     const raw = localStorage.getItem(DATA_KEY);
     if (!raw) return defaultData();
     const parsed = JSON.parse(raw);
-    // fill in any missing departments/vakken (e.g. after upgrades)
-    const base = defaultData();
-    DEPARTMENTS.forEach(dep => {
-      if (!parsed.departments[dep]) parsed.departments[dep] = base.departments[dep];
-    });
+    if (parsed.departments && !Array.isArray(parsed.departments)) {
+      parsed.departments = migrateDepartments(parsed.departments);
+    }
+    if (!Array.isArray(parsed.departments)) parsed.departments = [];
     return parsed;
   } catch (e) {
     console.error('Kon data niet laden, begin opnieuw', e);
@@ -121,9 +163,18 @@ function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
+function getDept(id) {
+  return data.departments.find(d => d.id === id) || null;
+}
+
+function deptName(id) {
+  const d = getDept(id);
+  return d ? d.name : '?';
+}
+
 /* ---------- State ---------- */
 
-let currentAfdeling = DEPARTMENTS[0];
+let currentAfdeling = data.departments[0] ? data.departments[0].id : null;
 let currentVak = '1';
 let currentDup = '1';
 
@@ -157,54 +208,100 @@ function initTabs() {
 
 function initSelectors() {
   const afdelingSelect = document.getElementById('afdelingSelect');
-  afdelingSelect.innerHTML = DEPARTMENTS.map(d => `<option value="${d}">Afdeling ${d}</option>`).join('');
-  afdelingSelect.value = currentAfdeling;
   afdelingSelect.addEventListener('change', () => {
     currentAfdeling = afdelingSelect.value;
     renderVakSelect();
+    renderDupSelect();
     renderScoutenTab();
   });
-
-  renderVakSelect();
 
   document.getElementById('vakSelect').addEventListener('change', e => {
     currentVak = e.target.value;
     renderScoutenTab();
   });
 
-  document.getElementById('tellingDatum').value = todayStr();
-}
-
-function initDupSelector() {
-  const dupSelect = document.getElementById('dupSelect');
-  let opts = '';
-  for (let i = 1; i <= DUP_COUNT; i++) opts += `<option value="${i}">Vangbak ${i}</option>`;
-  dupSelect.innerHTML = opts;
-  dupSelect.value = currentDup;
-  dupSelect.addEventListener('change', e => {
+  document.getElementById('dupSelect').addEventListener('change', e => {
     currentDup = e.target.value;
     renderDuponchelia();
   });
+
+  populateAfdelingSelects();
+  document.getElementById('tellingDatum').value = todayStr();
+}
+
+// Rebuilds the Scouten- and Analyse-tab afdeling dropdowns from the current
+// department list. Called on init and whenever departments are added,
+// renamed or removed via Instellingen.
+function populateAfdelingSelects() {
+  const afdelingSelect = document.getElementById('afdelingSelect');
+  const wantedAfdeling = data.departments.some(d => d.id === currentAfdeling) ? currentAfdeling : (data.departments[0] ? data.departments[0].id : null);
+  afdelingSelect.innerHTML = '';
+  data.departments.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.id;
+    opt.textContent = d.name;
+    afdelingSelect.appendChild(opt);
+  });
+  currentAfdeling = wantedAfdeling;
+  if (currentAfdeling) afdelingSelect.value = currentAfdeling;
+
+  const analyseSelect = document.getElementById('analyseAfdelingSelect');
+  const keepAnalyseVal = analyseSelect.value;
+  analyseSelect.innerHTML = '<option value="alle">Alle afdelingen</option>';
+  data.departments.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.id;
+    opt.textContent = d.name;
+    analyseSelect.appendChild(opt);
+  });
+  const stillValid = keepAnalyseVal === 'alle' || data.departments.some(d => d.id === keepAnalyseVal);
+  analyseSelect.value = stillValid ? keepAnalyseVal : 'alle';
+
+  renderVakSelect();
+  renderDupSelect();
 }
 
 function renderVakSelect() {
   const vakSelect = document.getElementById('vakSelect');
-  let opts = '';
-  for (let i = 1; i <= VAK_COUNT; i++) opts += `<option value="${i}">Vak ${i}</option>`;
-  vakSelect.innerHTML = opts;
+  const dept = getDept(currentAfdeling);
+  vakSelect.innerHTML = '';
+  if (!dept) return;
+  for (let i = 1; i <= dept.vakCount; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `Vak ${i}`;
+    vakSelect.appendChild(opt);
+  }
+  if (!dept.vakken[currentVak]) currentVak = '1';
   vakSelect.value = currentVak;
-  if (vakSelect.value !== String(currentVak)) { currentVak = '1'; vakSelect.value = '1'; }
 }
 
-function getVak(afdeling, vak) {
-  return data.departments[afdeling].vakken[vak];
+function renderDupSelect() {
+  const dupSelect = document.getElementById('dupSelect');
+  const dept = getDept(currentAfdeling);
+  dupSelect.innerHTML = '';
+  if (!dept) return;
+  for (let i = 1; i <= dept.duponcheliaCount; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `Vangbak ${i}`;
+    dupSelect.appendChild(opt);
+  }
+  if (!dept.duponchelia[currentDup]) currentDup = '1';
+  dupSelect.value = currentDup;
+}
+
+function getVak(afdelingId, vak) {
+  const dept = getDept(afdelingId);
+  return dept ? dept.vakken[vak] : null;
 }
 
 /* ---------- Card status ---------- */
 
 function renderCardStatus() {
   const vak = getVak(currentAfdeling, currentVak);
-  document.getElementById('vakTitel').textContent = `— Afd. ${currentAfdeling}, Vak ${currentVak}`;
+  if (!vak) return;
+  document.getElementById('vakTitel').textContent = `— ${deptName(currentAfdeling)}, Vak ${currentVak}`;
   const days = daysSince(vak.card.sideStartDate);
   const maxDays = settings.cardMaxDays;
   const warn = days !== null && days >= maxDays;
@@ -218,6 +315,7 @@ function renderCardStatus() {
 function initCardActions() {
   document.getElementById('btnGedraaid').addEventListener('click', () => {
     const vak = getVak(currentAfdeling, currentVak);
+    if (!vak) return;
     const effDate = document.getElementById('tellingDatum').value || todayStr();
     vak.card.side = vak.card.side === 'A' ? 'B' : 'A';
     vak.card.sideStartDate = effDate;
@@ -228,6 +326,7 @@ function initCardActions() {
 
   document.getElementById('btnVervangen').addEventListener('click', () => {
     const vak = getVak(currentAfdeling, currentVak);
+    if (!vak) return;
     const effDate = document.getElementById('tellingDatum').value || todayStr();
     vak.card.side = 'A';
     vak.card.sideStartDate = effDate;
@@ -243,6 +342,7 @@ function initTellingForm() {
   document.getElementById('tellingForm').addEventListener('submit', e => {
     e.preventDefault();
     const vak = getVak(currentAfdeling, currentVak);
+    if (!vak) return;
     const reading = {
       id: genId(),
       date: document.getElementById('tellingDatum').value || todayStr(),
@@ -264,8 +364,9 @@ function initTellingForm() {
 
 function renderVakHistorie() {
   const vak = getVak(currentAfdeling, currentVak);
-  const list = [...vak.readings].sort((a, b) => b.date.localeCompare(a.date));
   const el = document.getElementById('vakHistorie');
+  if (!vak) { el.innerHTML = ''; return; }
+  const list = [...vak.readings].sort((a, b) => b.date.localeCompare(a.date));
   if (!list.length) {
     el.innerHTML = '<p class="muted">Nog geen tellingen voor dit vak.</p>';
     return;
@@ -274,7 +375,7 @@ function renderVakHistorie() {
     <div class="hist-item">
       <div>
         <div><strong>${fmtDate(r.date)}</strong> · kant ${r.side}</div>
-        <div class="meta">${bugIcon('trips')}${r.trips} · ${bugIcon('luis')}${r.luis} · ${bugIcon('wolluis')}${r.wolluis} · ${bugIcon('witteVlieg')}${r.witteVlieg}${r.notitie ? ' · ' + r.notitie : ''}</div>
+        <div class="meta">${bugIcon('trips')}${r.trips} · ${bugIcon('luis')}${r.luis} · ${bugIcon('wolluis')}${r.wolluis} · ${bugIcon('witteVlieg')}${r.witteVlieg}${r.notitie ? ' · ' + escapeHtml(r.notitie) : ''}</div>
       </div>
       <button class="del-btn" data-id="${r.id}" aria-label="Verwijderen">🗑️</button>
     </div>
@@ -292,13 +393,15 @@ function renderVakHistorie() {
 /* ---------- Duponchelia ---------- */
 
 function renderDuponchelia() {
-  document.getElementById('duponcheliaAfdelingLabel').textContent = `— Afd. ${currentAfdeling}`;
-  const dep = data.departments[currentAfdeling];
+  document.getElementById('duponcheliaAfdelingLabel').textContent = `— ${deptName(currentAfdeling)}`;
+  const dept = getDept(currentAfdeling);
   const el = document.getElementById('duponcheliaList');
+  if (!dept) { el.innerHTML = ''; return; }
   const maxDays = settings.pheromoneMaxDays;
 
   const num = currentDup;
-  const trap = dep.duponchelia[num];
+  const trap = dept.duponchelia[num];
+  if (!trap) { el.innerHTML = ''; return; }
   const days = daysSince(trap.pheromoneStartDate);
   const warn = days !== null && days >= maxDays;
   const lastReading = [...trap.readings].sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -326,7 +429,7 @@ function renderDuponchelia() {
   `;
 
   el.querySelector('[data-save-dup]').addEventListener('click', () => {
-    const trap2 = data.departments[currentAfdeling].duponchelia[num];
+    const trap2 = getDept(currentAfdeling).duponchelia[num];
     const aantal = Number(document.getElementById(`dupCount-${num}`).value) || 0;
     const date = document.getElementById(`dupDate-${num}`).value || todayStr();
     trap2.readings.push({ id: genId(), date, aantal });
@@ -336,7 +439,7 @@ function renderDuponchelia() {
   });
 
   el.querySelector('[data-replace-pher]').addEventListener('click', () => {
-    const trap2 = data.departments[currentAfdeling].duponchelia[num];
+    const trap2 = getDept(currentAfdeling).duponchelia[num];
     trap2.pheromoneStartDate = todayStr();
     saveData();
     renderDuponchelia();
@@ -347,6 +450,12 @@ function renderDuponchelia() {
 /* ---------- Render whole Scouten tab ---------- */
 
 function renderScoutenTab() {
+  const empty = document.getElementById('scoutenEmpty');
+  const hasDept = data.departments.length > 0;
+  document.querySelectorAll('#scouten .card:not(#scoutenEmpty)').forEach(c => c.classList.toggle('hidden', !hasDept));
+  document.querySelector('#scouten .selectors').classList.toggle('hidden', !hasDept);
+  empty.classList.toggle('hidden', hasDept);
+  if (!hasDept) return;
   renderCardStatus();
   renderVakHistorie();
   renderDuponchelia();
@@ -356,19 +465,13 @@ function renderScoutenTab() {
 
 function initAnalyseSelectors() {
   const sel = document.getElementById('analyseAfdelingSelect');
-  DEPARTMENTS.forEach(d => {
-    const opt = document.createElement('option');
-    opt.value = d;
-    opt.textContent = `Afdeling ${d}`;
-    sel.appendChild(opt);
-  });
   sel.addEventListener('change', renderAnalyse);
   document.getElementById('analysePeriodeSelect').addEventListener('change', renderAnalyse);
 }
 
 function getSelectedDepartments() {
   const val = document.getElementById('analyseAfdelingSelect').value;
-  return val === 'alle' ? DEPARTMENTS : [val];
+  return val === 'alle' ? data.departments.map(d => d.id) : [val];
 }
 
 function getPeriodCutoff() {
@@ -382,15 +485,16 @@ function getPeriodCutoff() {
 
 function collectVakRows(deps, cutoff) {
   const rows = [];
-  deps.forEach(dep => {
-    const vakken = data.departments[dep].vakken;
-    Object.keys(vakken).forEach(num => {
-      const vak = vakken[num];
+  deps.forEach(depId => {
+    const dept = getDept(depId);
+    if (!dept) return;
+    Object.keys(dept.vakken).forEach(num => {
+      const vak = dept.vakken[num];
       const inPeriod = vak.readings.filter(r => !cutoff || r.date >= cutoff);
       const sums = { trips: 0, luis: 0, wolluis: 0, witteVlieg: 0 };
       inPeriod.forEach(r => INSECTS.forEach(i => sums[i.key] += r[i.key]));
       const last = [...vak.readings].sort((a, b) => b.date.localeCompare(a.date))[0];
-      rows.push({ dep, num, sums, total: INSECTS.reduce((s, i) => s + sums[i.key], 0), last, card: vak.card });
+      rows.push({ dep: depId, depName: dept.name, num, sums, total: INSECTS.reduce((s, i) => s + sums[i.key], 0), last, card: vak.card });
     });
   });
   return rows;
@@ -409,19 +513,19 @@ function renderTotals(rows) {
 
 function renderAttention(deps) {
   const items = [];
-  deps.forEach(dep => {
-    const vakken = data.departments[dep].vakken;
-    Object.keys(vakken).forEach(num => {
-      const days = daysSince(vakken[num].card.sideStartDate);
+  deps.forEach(depId => {
+    const dept = getDept(depId);
+    if (!dept) return;
+    Object.keys(dept.vakken).forEach(num => {
+      const days = daysSince(dept.vakken[num].card.sideStartDate);
       if (days >= settings.cardMaxDays) {
-        items.push(`🗂️ Afd. ${dep}, Vak ${num}: vangkaart al ${days} dagen op kant ${vakken[num].card.side} — draaien/vervangen.`);
+        items.push(`🗂️ ${escapeHtml(dept.name)}, Vak ${num}: vangkaart al ${days} dagen op kant ${dept.vakken[num].card.side} — draaien/vervangen.`);
       }
     });
-    const dup = data.departments[dep].duponchelia;
-    Object.keys(dup).forEach(num => {
-      const days = daysSince(dup[num].pheromoneStartDate);
+    Object.keys(dept.duponchelia).forEach(num => {
+      const days = daysSince(dept.duponchelia[num].pheromoneStartDate);
       if (days >= settings.pheromoneMaxDays) {
-        items.push(`🪤 Afd. ${dep}, Duponchelia vangbak ${num}: feromoon al ${days} dagen oud — vervangen.`);
+        items.push(`🪤 ${escapeHtml(dept.name)}, Duponchelia vangbak ${num}: feromoon al ${days} dagen oud — vervangen.`);
       }
     });
   });
@@ -436,7 +540,7 @@ function renderVakTableAndChart(rows) {
   const tbody = document.querySelector('#vakTable tbody');
   tbody.innerHTML = sorted.map(r => `
     <tr>
-      <td>${r.dep}-${r.num}</td>
+      <td>${escapeHtml(r.depName)}-${r.num}</td>
       <td>${r.sums.trips}</td>
       <td>${r.sums.luis}</td>
       <td>${r.sums.wolluis}</td>
@@ -474,7 +578,7 @@ function renderChart(rows) {
       segs = `<rect x="${x}" y="${topPad + chartH - 1}" width="${barW}" height="1" fill="var(--border)"></rect>`;
     }
     bars += segs;
-    bars += `<text x="${x + barW / 2}" y="${180 - 8}" font-size="9" text-anchor="middle" fill="currentColor">${r.dep}-${r.num}</text>`;
+    bars += `<text x="${x + barW / 2}" y="${180 - 8}" font-size="9" text-anchor="middle" fill="currentColor">${escapeHtml(r.depName)}-${r.num}</text>`;
   });
 
   svg.innerHTML = `<g style="color:var(--muted)">${bars}</g>`;
@@ -484,16 +588,17 @@ function renderDuponcheliaAnalyse(deps, cutoff) {
   const el = document.getElementById('duponcheliaAnalyse');
   const rows = [];
   let html = '';
-  deps.forEach(dep => {
-    const dup = data.departments[dep].duponchelia;
-    Object.keys(dup).forEach(num => {
-      const trap = dup[num];
+  deps.forEach(depId => {
+    const dept = getDept(depId);
+    if (!dept) return;
+    Object.keys(dept.duponchelia).forEach(num => {
+      const trap = dept.duponchelia[num];
       const inPeriod = trap.readings.filter(r => !cutoff || r.date >= cutoff);
       const total = inPeriod.reduce((s, r) => s + r.aantal, 0);
       const days = daysSince(trap.pheromoneStartDate);
       const warn = days !== null && days >= settings.pheromoneMaxDays;
-      rows.push({ label: `${dep}-${num}`, total, warn });
-      html += `<div class="status-line"><span>Vangbak ${num} (afd. ${dep})</span><span class="val">${total} in periode ${warn ? '· <span class="badge warn">⚠️ feromoon</span>' : ''}</span></div>`;
+      rows.push({ label: `${dept.name}-${num}`, total, warn });
+      html += `<div class="status-line"><span>Vangbak ${num} (${escapeHtml(dept.name)})</span><span class="val">${total} in periode ${warn ? '· <span class="badge warn">⚠️ feromoon</span>' : ''}</span></div>`;
     });
   });
   el.innerHTML = html || '<p class="muted">Geen data.</p>';
@@ -516,8 +621,8 @@ function renderDupChart(rows) {
     const h = Math.max((r.total / maxTotal) * chartH, r.total > 0 ? 1 : 0);
     const y = topPad + chartH - h;
     const color = r.warn ? 'var(--accent)' : 'var(--primary)';
-    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h || 1}" style="fill:${h ? color : 'var(--border)'}"><title>Vangbak ${r.label}: ${r.total}${r.warn ? ' (feromoon aan vervanging toe)' : ''}</title></rect>`;
-    bars += `<text x="${x + barW / 2}" y="${180 - 8}" font-size="9" text-anchor="middle" fill="currentColor">${r.label}</text>`;
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h || 1}" style="fill:${h ? color : 'var(--border)'}"><title>Vangbak ${escapeHtml(r.label)}: ${r.total}${r.warn ? ' (feromoon aan vervanging toe)' : ''}</title></rect>`;
+    bars += `<text x="${x + barW / 2}" y="${180 - 8}" font-size="9" text-anchor="middle" fill="currentColor">${escapeHtml(r.label)}</text>`;
   });
 
   svg.innerHTML = `<g style="color:var(--muted)">${bars}</g>`;
@@ -537,17 +642,17 @@ function renderAnalyse() {
 
 function buildCsv(deps, cutoff) {
   const lines = ['Type;Afdeling;Nummer;Datum;KantOfFeromoon;Trips;Luis;Wolluis;WitteVlieg;AantalDuponchelia;Notitie'];
-  deps.forEach(dep => {
-    const vakken = data.departments[dep].vakken;
-    Object.keys(vakken).forEach(num => {
-      vakken[num].readings.filter(r => !cutoff || r.date >= cutoff).forEach(r => {
-        lines.push(['Vak', dep, num, r.date, r.side, r.trips, r.luis, r.wolluis, r.witteVlieg, '', r.notitie].map(escapeCsv).join(';'));
+  deps.forEach(depId => {
+    const dept = getDept(depId);
+    if (!dept) return;
+    Object.keys(dept.vakken).forEach(num => {
+      dept.vakken[num].readings.filter(r => !cutoff || r.date >= cutoff).forEach(r => {
+        lines.push(['Vak', dept.name, num, r.date, r.side, r.trips, r.luis, r.wolluis, r.witteVlieg, '', r.notitie].map(escapeCsv).join(';'));
       });
     });
-    const dup = data.departments[dep].duponchelia;
-    Object.keys(dup).forEach(num => {
-      dup[num].readings.filter(r => !cutoff || r.date >= cutoff).forEach(r => {
-        lines.push(['Duponchelia', dep, num, r.date, '', '', '', '', '', r.aantal, ''].map(escapeCsv).join(';'));
+    Object.keys(dept.duponchelia).forEach(num => {
+      dept.duponchelia[num].readings.filter(r => !cutoff || r.date >= cutoff).forEach(r => {
+        lines.push(['Duponchelia', dept.name, num, r.date, '', '', '', '', '', r.aantal, ''].map(escapeCsv).join(';'));
       });
     });
   });
@@ -559,7 +664,7 @@ function buildSummaryText(deps, cutoff) {
   const totals = { trips: 0, luis: 0, wolluis: 0, witteVlieg: 0 };
   rows.forEach(r => INSECTS.forEach(i => totals[i.key] += r.sums[i.key]));
   const periodeLabel = document.getElementById('analysePeriodeSelect').selectedOptions[0].textContent;
-  const afdLabel = deps.length === DEPARTMENTS.length ? 'alle afdelingen' : 'afdeling ' + deps.join(', ');
+  const afdLabel = deps.length === data.departments.length ? 'alle afdelingen' : 'afdeling ' + deps.map(deptName).join(', ');
 
   let text = `Plaagscouting analyse — ${afdLabel} (${periodeLabel})\n`;
   text += `Datum export: ${fmtDate(todayStr())}\n\n`;
@@ -569,20 +674,20 @@ function buildSummaryText(deps, cutoff) {
   const top5 = [...rows].sort((a, b) => b.total - a.total).filter(r => r.total > 0).slice(0, 5);
   if (top5.length) {
     text += `\nTop vakken (hoogste aantallen):\n`;
-    top5.forEach(r => { text += `  Afd. ${r.dep}, Vak ${r.num}: ${r.total} (T${r.sums.trips} L${r.sums.luis} W${r.sums.wolluis} Wv${r.sums.witteVlieg})\n`; });
+    top5.forEach(r => { text += `  ${r.depName}, Vak ${r.num}: ${r.total} (T${r.sums.trips} L${r.sums.luis} W${r.sums.wolluis} Wv${r.sums.witteVlieg})\n`; });
   }
 
   const attentionItems = [];
-  deps.forEach(dep => {
-    const vakken = data.departments[dep].vakken;
-    Object.keys(vakken).forEach(num => {
-      const days = daysSince(vakken[num].card.sideStartDate);
-      if (days >= settings.cardMaxDays) attentionItems.push(`Afd. ${dep}, Vak ${num}: kaart ${days} dagen oud (kant ${vakken[num].card.side})`);
+  deps.forEach(depId => {
+    const dept = getDept(depId);
+    if (!dept) return;
+    Object.keys(dept.vakken).forEach(num => {
+      const days = daysSince(dept.vakken[num].card.sideStartDate);
+      if (days >= settings.cardMaxDays) attentionItems.push(`${dept.name}, Vak ${num}: kaart ${days} dagen oud (kant ${dept.vakken[num].card.side})`);
     });
-    const dup = data.departments[dep].duponchelia;
-    Object.keys(dup).forEach(num => {
-      const days = daysSince(dup[num].pheromoneStartDate);
-      if (days >= settings.pheromoneMaxDays) attentionItems.push(`Afd. ${dep}, Duponchelia vangbak ${num}: feromoon ${days} dagen oud`);
+    Object.keys(dept.duponchelia).forEach(num => {
+      const days = daysSince(dept.duponchelia[num].pheromoneStartDate);
+      if (days >= settings.pheromoneMaxDays) attentionItems.push(`${dept.name}, Duponchelia vangbak ${num}: feromoon ${days} dagen oud`);
     });
   });
   if (attentionItems.length) {
@@ -646,6 +751,131 @@ function initShareButtons() {
   });
 }
 
+/* ---------- Afdelingen beheren (Instellingen) ---------- */
+
+function renderDeptManageList() {
+  const el = document.getElementById('deptManageList');
+  if (!data.departments.length) {
+    el.innerHTML = '<p class="muted">Nog geen afdelingen. Voeg er hieronder een toe.</p>';
+    return;
+  }
+  el.innerHTML = data.departments.map(d => `
+    <div class="dept-row" data-id="${d.id}">
+      <input type="text" class="dept-name" value="${escapeHtml(d.name)}" placeholder="Naam afdeling" aria-label="Naam afdeling">
+      <label class="dept-mini">Vakken
+        <input type="number" min="1" max="200" class="dept-vakcount" value="${d.vakCount}">
+      </label>
+      <label class="dept-mini">Duponchelia
+        <input type="number" min="0" max="50" class="dept-dupcount" value="${d.duponcheliaCount}">
+      </label>
+      <button class="icon-btn dept-delete" data-id="${d.id}" aria-label="Afdeling verwijderen">🗑️</button>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.dept-name').forEach(input => {
+    input.addEventListener('change', () => {
+      const dept = getDept(input.closest('.dept-row').dataset.id);
+      const newName = input.value.trim();
+      if (!dept || !newName) { input.value = dept ? dept.name : ''; return; }
+      dept.name = newName;
+      saveData();
+      populateAfdelingSelects();
+      renderScoutenTab();
+      toast('Afdeling hernoemd');
+    });
+  });
+
+  el.querySelectorAll('.dept-vakcount').forEach(input => {
+    input.addEventListener('change', () => {
+      const dept = getDept(input.closest('.dept-row').dataset.id);
+      if (!dept) return;
+      applyVakCount(dept, input);
+    });
+  });
+
+  el.querySelectorAll('.dept-dupcount').forEach(input => {
+    input.addEventListener('change', () => {
+      const dept = getDept(input.closest('.dept-row').dataset.id);
+      if (!dept) return;
+      applyDupCount(dept, input);
+    });
+  });
+
+  el.querySelectorAll('.dept-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dept = getDept(btn.dataset.id);
+      if (!dept) return;
+      if (!confirm(`Afdeling "${dept.name}" en alle bijbehorende tellingen verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
+      data.departments = data.departments.filter(d => d.id !== dept.id);
+      saveData();
+      renderDeptManageList();
+      populateAfdelingSelects();
+      renderScoutenTab();
+      toast('Afdeling verwijderd');
+    });
+  });
+}
+
+function applyVakCount(dept, input) {
+  const newCount = Math.max(1, Number(input.value) || dept.vakCount);
+  if (newCount === dept.vakCount) { input.value = newCount; return; }
+  if (newCount < dept.vakCount) {
+    if (!confirm(`Dit verwijdert de historie van vak ${newCount + 1} t/m ${dept.vakCount} in "${dept.name}". Doorgaan?`)) {
+      input.value = dept.vakCount;
+      return;
+    }
+    for (let i = newCount + 1; i <= dept.vakCount; i++) delete dept.vakken[i];
+  } else {
+    for (let i = dept.vakCount + 1; i <= newCount; i++) {
+      dept.vakken[i] = { card: { side: 'A', sideStartDate: todayStr() }, readings: [] };
+    }
+  }
+  dept.vakCount = newCount;
+  saveData();
+  renderVakSelect();
+  renderScoutenTab();
+  toast('Aantal vakken bijgewerkt');
+}
+
+function applyDupCount(dept, input) {
+  const newCount = Math.max(0, Number(input.value) || 0);
+  if (newCount === dept.duponcheliaCount) { input.value = newCount; return; }
+  if (newCount < dept.duponcheliaCount) {
+    if (!confirm(`Dit verwijdert de historie van vangbak ${newCount + 1} t/m ${dept.duponcheliaCount} in "${dept.name}". Doorgaan?`)) {
+      input.value = dept.duponcheliaCount;
+      return;
+    }
+    for (let i = newCount + 1; i <= dept.duponcheliaCount; i++) delete dept.duponchelia[i];
+  } else {
+    for (let i = dept.duponcheliaCount + 1; i <= newCount; i++) {
+      dept.duponchelia[i] = { pheromoneStartDate: todayStr(), readings: [] };
+    }
+  }
+  dept.duponcheliaCount = newCount;
+  saveData();
+  renderDupSelect();
+  renderScoutenTab();
+  toast('Aantal vangbakken bijgewerkt');
+}
+
+function initDeptManagement() {
+  document.getElementById('btnAddDept').addEventListener('click', () => {
+    const existingNumbers = data.departments.map(d => Number(d.name)).filter(n => !isNaN(n));
+    const nextName = existingNumbers.length ? String(Math.max(...existingNumbers) + 1) : 'Nieuwe afdeling';
+    const dept = makeDepartment(nextName);
+    data.departments.push(dept);
+    saveData();
+    renderDeptManageList();
+    populateAfdelingSelects();
+    currentAfdeling = dept.id;
+    document.getElementById('afdelingSelect').value = dept.id;
+    renderVakSelect();
+    renderDupSelect();
+    renderScoutenTab();
+    toast(`Afdeling "${nextName}" toegevoegd`);
+  });
+}
+
 /* ---------- Settings modal ---------- */
 
 function initSettingsModal() {
@@ -655,6 +885,7 @@ function initSettingsModal() {
     document.getElementById('defaultEmails').value = settings.defaultEmails;
     document.getElementById('cardMaxDays').value = settings.cardMaxDays;
     document.getElementById('pheromoneMaxDays').value = settings.pheromoneMaxDays;
+    renderDeptManageList();
     modal.classList.remove('hidden');
   });
   document.getElementById('closeSettings').addEventListener('click', () => modal.classList.add('hidden'));
@@ -697,9 +928,14 @@ function initSettingsModal() {
         if (!parsed.data || !parsed.data.departments) throw new Error('Ongeldig back-up bestand');
         if (!confirm('Huidige data overschrijven met deze back-up?')) return;
         data = parsed.data;
+        if (data.departments && !Array.isArray(data.departments)) {
+          data.departments = migrateDepartments(data.departments);
+        }
         settings = { ...defaultSettings(), ...(parsed.settings || {}) };
         saveData();
         saveSettings();
+        populateAfdelingSelects();
+        renderDeptManageList();
         renderScoutenTab();
         renderAnalyse();
         toast('Back-up geïmporteerd');
@@ -716,6 +952,8 @@ function initSettingsModal() {
     if (!confirm('Weet je zeker dat je ALLE data wilt wissen? Dit kan niet ongedaan gemaakt worden. Maak eerst een back-up.')) return;
     data = defaultData();
     saveData();
+    populateAfdelingSelects();
+    renderDeptManageList();
     renderScoutenTab();
     renderAnalyse();
     toast('Alle data gewist');
@@ -762,11 +1000,11 @@ function init() {
   renderBugIconPlaceholders();
   initTabs();
   initSelectors();
-  initDupSelector();
   initCardActions();
   initTellingForm();
   initAnalyseSelectors();
   initShareButtons();
+  initDeptManagement();
   initSettingsModal();
   initServiceWorker();
   renderScoutenTab();

@@ -28,6 +28,11 @@
 
 <main id="scouten" class="tab-panel active">
 
+  <section class="card hidden" id="scoutenEmpty">
+    <h2>Nog geen afdeling ingesteld</h2>
+    <p class="muted">Voeg via ⚙️ Instellingen → Afdelingen &amp; indeling eerst een afdeling toe voor deze kwekerij.</p>
+  </section>
+
   <section class="card selectors">
     <label>Afdeling
       <select id="afdelingSelect"></select>
@@ -168,6 +173,11 @@
       <input type="number" id="pheromoneMaxDays" min="1" style="width:5rem">
     </div>
     <button id="saveSettings" class="btn primary">Opslaan</button>
+    <hr>
+    <h3>Afdelingen &amp; indeling</h3>
+    <p class="muted">Pas de afdelingen, aantal vakken en Duponchelia-vangbakken aan naar jouw kwekerij. Een naam mag vrij gekozen worden.</p>
+    <div id="deptManageList" class="dept-manage-list"></div>
+    <button id="btnAddDept" class="btn secondary">+ Afdeling toevoegen</button>
     <hr>
     <h3>Back-up</h3>
     <p class="muted">Alle data staat lokaal in deze browser/telefoon. Maak regelmatig een back-up.</p>
