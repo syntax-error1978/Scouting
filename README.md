@@ -69,3 +69,56 @@ werkbranch voor de doorontwikkeling richting zelf hosten op de eigen (Docker-)se
 Plantworld, met als stip op de horizon gedeelde data per kwekerij in plaats van alleen lokale
 opslag per telefoon. Zie het architectuurvoorstel dat hierover met ICT is gedeeld voor de
 overwogen aanpak (server, database, toegang en fasering).
+
+### Fase 1: gedeelde backend (`server/`)
+
+Er staat nu een werkende, geteste backend in `server/`: een lichte Node.js/Express-API met een
+SQLite-database, gedraaid in Docker. Elke kwekerij (locatie) krijgt een eigen toegangscode; alle
+scouts van die kwekerij delen dezelfde afdelingen, tellingen, vangkaart- en Duponchelia-status via
+deze ene database, in plaats van elk hun eigen lokale kopie.
+
+**Belangrijk:** dit is voorlopig een zelfstandige, los te testen backend — de app zelf
+(`index.html`/`app.js`) praat er nog niet mee en blijft dus voorlopig lokale opslag gebruiken. Het
+koppelen van de app aan deze API (inclusief offline wachtrij, zodat scouten zonder bereik blijft
+werken) is de volgende stap.
+
+**Draaien met Docker:**
+
+```bash
+cp .env.example .env        # vul een eigen ADMIN_TOKEN in
+docker compose up --build
+```
+
+De app + API zijn dan bereikbaar op `http://localhost:8080` (of de servernaam, in productie achter
+HTTPS). Data staat in een Docker-volume (`scouting-data`), dus overleeft een herstart van de
+container.
+
+**Een kwekerij (locatie) aanmaken**, met het `ADMIN_TOKEN` uit je `.env`:
+
+```bash
+curl -X POST http://localhost:8080/api/locations \
+  -H "X-Admin-Token: <ADMIN_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Kwekerij Voorbeeld"}'
+# → {"id":"...","name":"Kwekerij Voorbeeld","accessCode":"a1b2c3d4"}
+```
+
+De teruggegeven `accessCode` is wat een kwekerij straks in de app invoert om verbinding te maken
+met zijn eigen gedeelde data (header `X-Access-Code` op elke API-aanroep).
+
+**Beschikbare endpoints** (alle behalve `/api/locations` en `/api/health` vereisen de header
+`X-Access-Code: <code>`):
+
+| Methode | Pad | Doel |
+|---|---|---|
+| POST | `/api/locations` | (admin) nieuwe kwekerij + toegangscode aanmaken |
+| GET | `/api/bootstrap` | locatie + afdelingen ophalen |
+| POST | `/api/departments` | afdeling toevoegen |
+| PATCH | `/api/departments/:id` | afdeling hernoemen/aantallen wijzigen |
+| DELETE | `/api/departments/:id` | afdeling en bijbehorende data verwijderen |
+| GET | `/api/sync?since=<ISO-tijd>` | alles ophalen dat gewijzigd is sinds `since` |
+| POST | `/api/push` | lokale tellingen/status naar de server sturen |
+
+`push` is idempotent (tellingen hebben een client-gegenereerd id, dubbel versturen dupliceert niet)
+en kaart-/feromoonstatus gebruikt "laatste wijziging wint" op basis van tijdstip, zodat twee scouts
+die tegelijk werken elkaar niet in de wielen rijden.

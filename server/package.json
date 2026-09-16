@@ -1,0 +1,13 @@
+{
+  "name": "plantworld-scout-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gedeelde backend (fase 1) voor de Plantworld Scout-app: API + SQLite per kwekerij.",
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-sqlite src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

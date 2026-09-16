@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMIN_TOKEN=${ADMIN_TOKEN:?stel een ADMIN_TOKEN in, zie .env.example}
+      - DB_PATH=/data/scouting.db
+    volumes:
+      - scouting-data:/data
+    restart: unless-stopped
+
+volumes:
+  scouting-data:
