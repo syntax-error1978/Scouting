@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scouting-cache-v8';
+const CACHE_NAME = 'scouting-cache-v9';
 const ASSETS = [
   './',
   './index.html',
@@ -26,9 +26,12 @@ self.addEventListener('activate', event => {
 });
 
 // Cache-first for our own assets, network passthrough for anything else (e.g. mailto/share targets).
+// API-verzoeken (bij zelfhosting op hetzelfde domein) slaan de cache altijd
+// over: dat zijn live, steeds veranderende gegevens, geen statische bestanden.
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
 
   event.respondWith(
     caches.match(event.request).then(cached => {

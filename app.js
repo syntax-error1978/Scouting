@@ -39,6 +39,10 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
 function daysSince(dateStr) {
   if (!dateStr) return null;
   const then = new Date(dateStr + 'T00:00:00');
@@ -67,10 +71,17 @@ function escapeHtml(val) {
 
 /* ---------- Data layer ---------- */
 
+// updatedAt start op een epoch-sentinel (niet "nu"): dit is een automatisch
+// aangemaakte standaardstatus, geen echte gebruikersactie. Zo wint een
+// binnenkomende serverstatus bij sync altijd van een nooit-aangeraakt vak,
+// in plaats van dat het aanmaakmoment ten onrechte als "recentste wijziging"
+// telt.
+const EPOCH = '1970-01-01T00:00:00.000Z';
+
 function makeVakken(count) {
   const vakken = {};
   for (let i = 1; i <= count; i++) {
-    vakken[i] = { card: { side: 'A', sideStartDate: todayStr() }, readings: [] };
+    vakken[i] = { card: { side: 'A', sideStartDate: todayStr(), updatedAt: EPOCH }, readings: [] };
   }
   return vakken;
 }
@@ -78,7 +89,7 @@ function makeVakken(count) {
 function makeDuponchelia(count) {
   const duponchelia = {};
   for (let i = 1; i <= count; i++) {
-    duponchelia[i] = { pheromoneStartDate: todayStr(), readings: [] };
+    duponchelia[i] = { pheromoneStartDate: todayStr(), updatedAt: EPOCH, readings: [] };
   }
   return duponchelia;
 }
@@ -127,6 +138,31 @@ function migrateDepartments(oldObj) {
   });
 }
 
+// Backfills fields needed for server-sync (updatedAt on state, and
+// departmentId/vakNum|trapNum on readings) onto data that predates the
+// sync feature, so old local data can be pushed/merged correctly.
+function ensureSyncFields(d) {
+  d.departments.forEach(dept => {
+    Object.keys(dept.vakken).forEach(num => {
+      const vak = dept.vakken[num];
+      if (!vak.card.updatedAt) vak.card.updatedAt = EPOCH;
+      vak.readings.forEach(r => {
+        if (r.departmentId === undefined) r.departmentId = dept.id;
+        if (r.vakNum === undefined) r.vakNum = Number(num);
+      });
+    });
+    Object.keys(dept.duponchelia).forEach(num => {
+      const trap = dept.duponchelia[num];
+      if (!trap.updatedAt) trap.updatedAt = EPOCH;
+      trap.readings.forEach(r => {
+        if (r.departmentId === undefined) r.departmentId = dept.id;
+        if (r.trapNum === undefined) r.trapNum = Number(num);
+      });
+    });
+  });
+  return d;
+}
+
 let data = loadData();
 let settings = loadSettings();
 
@@ -139,7 +175,7 @@ function loadData() {
       parsed.departments = migrateDepartments(parsed.departments);
     }
     if (!Array.isArray(parsed.departments)) parsed.departments = [];
-    return parsed;
+    return ensureSyncFields(parsed);
   } catch (e) {
     console.error('Kon data niet laden, begin opnieuw', e);
     return defaultData();
@@ -172,6 +208,223 @@ function deptName(id) {
   return d ? d.name : '?';
 }
 
+/* ---------- Server sync (fase 1: gedeelde data per kwekerij) ---------- */
+//
+// Optioneel: als er verbinding is gemaakt met een server (zie Instellingen),
+// blijft de app hetzelfde lokale-first gedrag houden (elke actie werkt
+// direct en offline), maar worden tellingen en kaart-/feromoonstatus ook
+// naar de server gestuurd en van andere scouts opgehaald. Zonder server
+// verandert er niets aan het bestaande lokale-only gedrag.
+
+const SERVER_KEY = 'scouting_server_v1';
+const PENDING_KEY = 'scouting_pending_push_v1';
+
+function loadServer() {
+  try {
+    const raw = localStorage.getItem(SERVER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveServer() {
+  if (server) localStorage.setItem(SERVER_KEY, JSON.stringify(server));
+  else localStorage.removeItem(SERVER_KEY);
+}
+
+function emptyPending() {
+  return { readings: [], duponcheliaReadings: [], vakStates: [], duponcheliaStates: [] };
+}
+
+function loadPending() {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    return raw ? { ...emptyPending(), ...JSON.parse(raw) } : emptyPending();
+  } catch (e) {
+    return emptyPending();
+  }
+}
+
+function savePending() {
+  localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+}
+
+function pendingCount() {
+  return pending.readings.length + pending.duponcheliaReadings.length + pending.vakStates.length + pending.duponcheliaStates.length;
+}
+
+let server = loadServer();
+let pending = loadPending();
+
+async function apiFetch(baseUrl, code, path, opts = {}) {
+  const res = await fetch(baseUrl.replace(/\/$/, '') + path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', 'X-Access-Code': code, ...(opts.headers || {}) }
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Serverfout (${res.status})`);
+  }
+  return res.json();
+}
+
+function serverFetch(path, opts) {
+  if (!server) return Promise.reject(new Error('Niet verbonden met een server'));
+  return apiFetch(server.url, server.accessCode, path, opts);
+}
+
+// Vervangt vak/duponchelia-aantallen zodat ze overeenkomen met de server,
+// zonder bestaande tellingen/status kwijt te raken (zelfde groei/krimp-
+// logica als handmatig beheer, maar zonder bevestigingsvraag).
+function reconcileCounts(dept, vakCount, duponcheliaCount) {
+  const curVak = Object.keys(dept.vakken).length;
+  for (let i = curVak + 1; i <= vakCount; i++) dept.vakken[i] = { card: { side: 'A', sideStartDate: todayStr(), updatedAt: EPOCH }, readings: [] };
+  for (let i = vakCount + 1; i <= curVak; i++) delete dept.vakken[i];
+  dept.vakCount = vakCount;
+
+  const curDup = Object.keys(dept.duponchelia).length;
+  for (let i = curDup + 1; i <= duponcheliaCount; i++) dept.duponchelia[i] = { pheromoneStartDate: todayStr(), updatedAt: EPOCH, readings: [] };
+  for (let i = duponcheliaCount + 1; i <= curDup; i++) delete dept.duponchelia[i];
+  dept.duponcheliaCount = duponcheliaCount;
+  return dept;
+}
+
+function makeDepartmentWithId(id, name, vakCount, duponcheliaCount) {
+  const dept = makeDepartment(name, vakCount, duponcheliaCount);
+  dept.id = id;
+  return dept;
+}
+
+// Eerste keer verbinden: afdelingen matchen op naam. Lokale afdelingen die
+// de server nog niet kent worden aangemaakt op de server; server-afdelingen
+// die lokaal nog niet bestaan worden lokaal aangemaakt (leeg). Bij een
+// naam-match wordt de lokale historie behouden onder het server-id.
+async function connectToServer(url, code) {
+  const boot = await apiFetch(url, code, '/api/bootstrap');
+  server = { url: url.replace(/\/$/, ''), accessCode: code, locationName: boot.location.name, lastSyncTime: null };
+
+  const serverDepts = boot.departments;
+  const serverByName = new Map(serverDepts.map(d => [d.name, d]));
+  const localByName = new Map(data.departments.map(d => [d.name, d]));
+
+  const merged = [];
+  for (const sd of serverDepts) {
+    const local = localByName.get(sd.name);
+    if (local) {
+      local.id = sd.id;
+      reconcileCounts(local, sd.vakCount, sd.duponcheliaCount);
+      merged.push(local);
+    } else {
+      merged.push(makeDepartmentWithId(sd.id, sd.name, sd.vakCount, sd.duponcheliaCount));
+    }
+  }
+  for (const ld of data.departments) {
+    if (!serverByName.has(ld.name)) {
+      const created = await apiFetch(server.url, server.accessCode, '/api/departments', {
+        method: 'POST',
+        body: JSON.stringify({ name: ld.name, vakCount: ld.vakCount, duponcheliaCount: ld.duponcheliaCount })
+      });
+      ld.id = created.id;
+      merged.push(ld);
+    }
+  }
+
+  data.departments = merged;
+  saveServer();
+  saveData();
+  currentAfdeling = data.departments[0] ? data.departments[0].id : null;
+
+  await syncPull();
+  await flushPush();
+}
+
+function disconnectServer() {
+  server = null;
+  saveServer();
+}
+
+// Haalt alles op dat sinds de laatste sync gewijzigd is en voegt het lokaal
+// samen: nieuwe afdelingen/tellingen worden toegevoegd (tellingen zijn
+// append-only en gededupliceerd op id), kaart-/feromoonstatus gebruikt
+// "laatste wijziging wint" op basis van updatedAt.
+async function syncPull() {
+  if (!server) return;
+  const since = server.lastSyncTime || EPOCH;
+  const res = await serverFetch(`/api/sync?since=${encodeURIComponent(since)}`);
+
+  res.departments.forEach(sd => {
+    let dept = getDept(sd.id);
+    if (!dept) {
+      dept = makeDepartmentWithId(sd.id, sd.name, sd.vakCount, sd.duponcheliaCount);
+      data.departments.push(dept);
+    } else {
+      dept.name = sd.name;
+      reconcileCounts(dept, sd.vakCount, sd.duponcheliaCount);
+    }
+  });
+
+  res.vakStates.forEach(vs => {
+    const vak = getDept(vs.departmentId)?.vakken[vs.vakNum];
+    if (!vak) return;
+    if (!vak.card.updatedAt || vs.updatedAt > vak.card.updatedAt) {
+      vak.card.side = vs.side;
+      vak.card.sideStartDate = vs.sideStartDate;
+      vak.card.updatedAt = vs.updatedAt;
+    }
+  });
+
+  res.duponcheliaStates.forEach(ds => {
+    const trap = getDept(ds.departmentId)?.duponchelia[ds.trapNum];
+    if (!trap) return;
+    if (!trap.updatedAt || ds.updatedAt > trap.updatedAt) {
+      trap.pheromoneStartDate = ds.pheromoneStartDate;
+      trap.updatedAt = ds.updatedAt;
+    }
+  });
+
+  res.readings.forEach(r => {
+    const vak = getDept(r.departmentId)?.vakken[r.vakNum];
+    if (!vak || vak.readings.some(x => x.id === r.id)) return;
+    vak.readings.push({ id: r.id, date: r.date, side: r.side, trips: r.trips, luis: r.luis, wolluis: r.wolluis, witteVlieg: r.witteVlieg, notitie: r.notitie, departmentId: r.departmentId, vakNum: r.vakNum });
+  });
+
+  res.duponcheliaReadings.forEach(r => {
+    const trap = getDept(r.departmentId)?.duponchelia[r.trapNum];
+    if (!trap || trap.readings.some(x => x.id === r.id)) return;
+    trap.readings.push({ id: r.id, date: r.date, aantal: r.aantal, departmentId: r.departmentId, trapNum: r.trapNum });
+  });
+
+  server.lastSyncTime = res.serverTime;
+  saveServer();
+  saveData();
+}
+
+function queueReading(kind, item) {
+  pending[kind].push(item);
+  savePending();
+  flushPush();
+}
+
+function queueState(kind, item, matchKeys) {
+  pending[kind] = pending[kind].filter(x => !matchKeys.every(k => x[k] === item[k]));
+  pending[kind].push(item);
+  savePending();
+  flushPush();
+}
+
+async function flushPush() {
+  if (!server || !pendingCount()) return;
+  const payload = pending;
+  try {
+    await serverFetch('/api/push', { method: 'POST', body: JSON.stringify(payload) });
+    pending = emptyPending();
+    savePending();
+  } catch (e) {
+    console.warn('Push mislukt, blijft in wachtrij tot de volgende poging', e);
+  }
+}
+
 /* ---------- State ---------- */
 
 let currentAfdeling = data.departments[0] ? data.departments[0].id : null;
@@ -199,7 +452,10 @@ function initTabs() {
       btn.classList.add('active');
       btn.setAttribute('aria-selected', 'true');
       document.getElementById(btn.dataset.tab).classList.add('active');
-      if (btn.dataset.tab === 'analyse') renderAnalyse();
+      if (btn.dataset.tab === 'analyse') {
+        renderAnalyse();
+        if (server) syncPull().then(renderAnalyse).catch(e => console.warn('Sync bij openen Analyse mislukt', e));
+      }
     });
   });
 }
@@ -312,6 +568,17 @@ function renderCardStatus() {
   `;
 }
 
+function pushVakState(vak) {
+  if (!server) return;
+  queueState('vakStates', {
+    departmentId: currentAfdeling,
+    vakNum: Number(currentVak),
+    side: vak.card.side,
+    sideStartDate: vak.card.sideStartDate,
+    updatedAt: vak.card.updatedAt
+  }, ['departmentId', 'vakNum']);
+}
+
 function initCardActions() {
   document.getElementById('btnGedraaid').addEventListener('click', () => {
     const vak = getVak(currentAfdeling, currentVak);
@@ -319,8 +586,10 @@ function initCardActions() {
     const effDate = document.getElementById('tellingDatum').value || todayStr();
     vak.card.side = vak.card.side === 'A' ? 'B' : 'A';
     vak.card.sideStartDate = effDate;
+    vak.card.updatedAt = nowIso();
     saveData();
     renderCardStatus();
+    pushVakState(vak);
     toast(`Kaart gedraaid naar kant ${vak.card.side}`);
   });
 
@@ -330,8 +599,10 @@ function initCardActions() {
     const effDate = document.getElementById('tellingDatum').value || todayStr();
     vak.card.side = 'A';
     vak.card.sideStartDate = effDate;
+    vak.card.updatedAt = nowIso();
     saveData();
     renderCardStatus();
+    pushVakState(vak);
     toast('Nieuwe vangkaart geplaatst');
   });
 }
@@ -351,13 +622,16 @@ function initTellingForm() {
       luis: Number(document.getElementById('inputLuis').value) || 0,
       wolluis: Number(document.getElementById('inputWolluis').value) || 0,
       witteVlieg: Number(document.getElementById('inputWitteVlieg').value) || 0,
-      notitie: document.getElementById('inputNotitie').value.trim()
+      notitie: document.getElementById('inputNotitie').value.trim(),
+      departmentId: currentAfdeling,
+      vakNum: Number(currentVak)
     };
     vak.readings.push(reading);
     saveData();
     renderVakHistorie();
     document.getElementById('tellingForm').reset();
     document.getElementById('tellingDatum').value = todayStr();
+    if (server) queueReading('readings', reading);
     toast('Telling opgeslagen');
   });
 }
@@ -432,17 +706,28 @@ function renderDuponchelia() {
     const trap2 = getDept(currentAfdeling).duponchelia[num];
     const aantal = Number(document.getElementById(`dupCount-${num}`).value) || 0;
     const date = document.getElementById(`dupDate-${num}`).value || todayStr();
-    trap2.readings.push({ id: genId(), date, aantal });
+    const reading = { id: genId(), date, aantal, departmentId: currentAfdeling, trapNum: Number(num) };
+    trap2.readings.push(reading);
     saveData();
     renderDuponchelia();
+    if (server) queueReading('duponcheliaReadings', reading);
     toast(`Telling vangbak ${num} opgeslagen`);
   });
 
   el.querySelector('[data-replace-pher]').addEventListener('click', () => {
     const trap2 = getDept(currentAfdeling).duponchelia[num];
     trap2.pheromoneStartDate = todayStr();
+    trap2.updatedAt = nowIso();
     saveData();
     renderDuponchelia();
+    if (server) {
+      queueState('duponcheliaStates', {
+        departmentId: currentAfdeling,
+        trapNum: Number(num),
+        pheromoneStartDate: trap2.pheromoneStartDate,
+        updatedAt: trap2.updatedAt
+      }, ['departmentId', 'trapNum']);
+    }
     toast(`Feromoon vangbak ${num} vervangen`);
   });
 }
@@ -851,10 +1136,19 @@ function renderDeptManageList() {
   `).join('');
 
   el.querySelectorAll('.dept-name').forEach(input => {
-    input.addEventListener('change', () => {
+    input.addEventListener('change', async () => {
       const dept = getDept(input.closest('.dept-row').dataset.id);
       const newName = input.value.trim();
       if (!dept || !newName) { input.value = dept ? dept.name : ''; return; }
+      if (server) {
+        try {
+          await serverFetch(`/api/departments/${dept.id}`, { method: 'PATCH', body: JSON.stringify({ name: newName }) });
+        } catch (e) {
+          toast('Kon niet hernoemen op de server: ' + e.message);
+          input.value = dept.name;
+          return;
+        }
+      }
       dept.name = newName;
       saveData();
       populateAfdelingSelects();
@@ -880,10 +1174,18 @@ function renderDeptManageList() {
   });
 
   el.querySelectorAll('.dept-delete').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const dept = getDept(btn.dataset.id);
       if (!dept) return;
       if (!confirm(`Afdeling "${dept.name}" en alle bijbehorende tellingen verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
+      if (server) {
+        try {
+          await serverFetch(`/api/departments/${dept.id}`, { method: 'DELETE' });
+        } catch (e) {
+          toast('Kon niet verwijderen op de server: ' + e.message);
+          return;
+        }
+      }
       data.departments = data.departments.filter(d => d.id !== dept.id);
       saveData();
       renderDeptManageList();
@@ -894,7 +1196,7 @@ function renderDeptManageList() {
   });
 }
 
-function applyVakCount(dept, input) {
+async function applyVakCount(dept, input) {
   const newCount = Math.max(1, Number(input.value) || dept.vakCount);
   if (newCount === dept.vakCount) { input.value = newCount; return; }
   if (newCount < dept.vakCount) {
@@ -902,10 +1204,21 @@ function applyVakCount(dept, input) {
       input.value = dept.vakCount;
       return;
     }
+  }
+  if (server) {
+    try {
+      await serverFetch(`/api/departments/${dept.id}`, { method: 'PATCH', body: JSON.stringify({ vakCount: newCount }) });
+    } catch (e) {
+      toast('Kon niet bijwerken op de server: ' + e.message);
+      input.value = dept.vakCount;
+      return;
+    }
+  }
+  if (newCount < dept.vakCount) {
     for (let i = newCount + 1; i <= dept.vakCount; i++) delete dept.vakken[i];
   } else {
     for (let i = dept.vakCount + 1; i <= newCount; i++) {
-      dept.vakken[i] = { card: { side: 'A', sideStartDate: todayStr() }, readings: [] };
+      dept.vakken[i] = { card: { side: 'A', sideStartDate: todayStr(), updatedAt: nowIso() }, readings: [] };
     }
   }
   dept.vakCount = newCount;
@@ -915,7 +1228,7 @@ function applyVakCount(dept, input) {
   toast('Aantal vakken bijgewerkt');
 }
 
-function applyDupCount(dept, input) {
+async function applyDupCount(dept, input) {
   const newCount = Math.max(0, Number(input.value) || 0);
   if (newCount === dept.duponcheliaCount) { input.value = newCount; return; }
   if (newCount < dept.duponcheliaCount) {
@@ -923,10 +1236,21 @@ function applyDupCount(dept, input) {
       input.value = dept.duponcheliaCount;
       return;
     }
+  }
+  if (server) {
+    try {
+      await serverFetch(`/api/departments/${dept.id}`, { method: 'PATCH', body: JSON.stringify({ duponcheliaCount: newCount }) });
+    } catch (e) {
+      toast('Kon niet bijwerken op de server: ' + e.message);
+      input.value = dept.duponcheliaCount;
+      return;
+    }
+  }
+  if (newCount < dept.duponcheliaCount) {
     for (let i = newCount + 1; i <= dept.duponcheliaCount; i++) delete dept.duponchelia[i];
   } else {
     for (let i = dept.duponcheliaCount + 1; i <= newCount; i++) {
-      dept.duponchelia[i] = { pheromoneStartDate: todayStr(), readings: [] };
+      dept.duponchelia[i] = { pheromoneStartDate: todayStr(), updatedAt: nowIso(), readings: [] };
     }
   }
   dept.duponcheliaCount = newCount;
@@ -937,10 +1261,24 @@ function applyDupCount(dept, input) {
 }
 
 function initDeptManagement() {
-  document.getElementById('btnAddDept').addEventListener('click', () => {
+  document.getElementById('btnAddDept').addEventListener('click', async () => {
     const existingNumbers = data.departments.map(d => Number(d.name)).filter(n => !isNaN(n));
     const nextName = existingNumbers.length ? String(Math.max(...existingNumbers) + 1) : 'Nieuwe afdeling';
-    const dept = makeDepartment(nextName);
+    let dept;
+    if (server) {
+      try {
+        const created = await serverFetch('/api/departments', {
+          method: 'POST',
+          body: JSON.stringify({ name: nextName, vakCount: DEFAULT_VAK_COUNT, duponcheliaCount: DEFAULT_DUP_COUNT })
+        });
+        dept = makeDepartmentWithId(created.id, created.name, created.vakCount, created.duponcheliaCount);
+      } catch (e) {
+        toast('Kon afdeling niet aanmaken op de server: ' + e.message);
+        return;
+      }
+    } else {
+      dept = makeDepartment(nextName);
+    }
     data.departments.push(dept);
     saveData();
     renderDeptManageList();
@@ -956,6 +1294,75 @@ function initDeptManagement() {
 
 /* ---------- Settings modal ---------- */
 
+function renderServerStatus() {
+  const statusEl = document.getElementById('serverStatus');
+  const form = document.getElementById('serverConnectForm');
+  const actions = document.getElementById('serverConnectedActions');
+  const hint = document.getElementById('deptServerHint');
+  if (server) {
+    const lastSync = server.lastSyncTime ? new Date(server.lastSyncTime).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : 'nog niet';
+    const pendingN = pendingCount();
+    statusEl.textContent = `Verbonden met "${server.locationName}" · laatst gesynchroniseerd: ${lastSync}${pendingN ? ` · ${pendingN} wijziging(en) in wachtrij` : ''}`;
+    form.classList.add('hidden');
+    actions.classList.remove('hidden');
+    hint.classList.remove('hidden');
+  } else {
+    statusEl.textContent = 'Niet verbonden — data blijft alleen lokaal op dit toestel.';
+    form.classList.remove('hidden');
+    actions.classList.add('hidden');
+    hint.classList.add('hidden');
+  }
+}
+
+function initServerSettings() {
+  document.getElementById('btnServerConnect').addEventListener('click', async () => {
+    const url = document.getElementById('serverUrl').value.trim();
+    const code = document.getElementById('serverCode').value.trim();
+    if (!url || !code) { toast('Vul server-URL en toegangscode in'); return; }
+    const btn = document.getElementById('btnServerConnect');
+    btn.disabled = true;
+    try {
+      await connectToServer(url, code);
+      renderServerStatus();
+      renderDeptManageList();
+      populateAfdelingSelects();
+      renderScoutenTab();
+      toast(`Verbonden met "${server.locationName}"`);
+    } catch (e) {
+      toast('Verbinden mislukt: ' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('btnSyncNow').addEventListener('click', async () => {
+    toast('Bezig met synchroniseren...');
+    try {
+      await flushPush();
+      await syncPull();
+      renderServerStatus();
+      renderScoutenTab();
+      renderAnalyse();
+      toast('Gesynchroniseerd');
+    } catch (e) {
+      toast('Synchroniseren mislukt: ' + e.message);
+    }
+  });
+
+  document.getElementById('btnServerDisconnect').addEventListener('click', () => {
+    if (!confirm('Loskoppelen van de server? Lokale data blijft staan, maar wordt niet meer gedeeld.')) return;
+    disconnectServer();
+    renderServerStatus();
+    renderDeptManageList();
+    toast('Losgekoppeld van de server');
+  });
+
+  window.addEventListener('online', () => {
+    if (!server) return;
+    flushPush().then(syncPull).catch(e => console.warn('Auto-sync bij weer online mislukt', e));
+  });
+}
+
 function initSettingsModal() {
   const modal = document.getElementById('settingsModal');
   document.getElementById('copyrightYear').textContent = new Date().getFullYear();
@@ -964,6 +1371,7 @@ function initSettingsModal() {
     document.getElementById('cardMaxDays').value = settings.cardMaxDays;
     document.getElementById('pheromoneMaxDays').value = settings.pheromoneMaxDays;
     renderDeptManageList();
+    renderServerStatus();
     modal.classList.remove('hidden');
   });
   document.getElementById('closeSettings').addEventListener('click', () => modal.classList.add('hidden'));
@@ -1084,9 +1492,17 @@ function init() {
   initShareButtons();
   initVakViewToggle();
   initDeptManagement();
+  initServerSettings();
   initSettingsModal();
   initServiceWorker();
   renderScoutenTab();
+
+  if (server) {
+    flushPush().then(syncPull).then(() => {
+      renderScoutenTab();
+      populateAfdelingSelects();
+    }).catch(e => console.warn('Sync bij opstarten mislukt', e));
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

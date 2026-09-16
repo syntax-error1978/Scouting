@@ -8,6 +8,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
+// De app draait meestal op hetzelfde domein als deze API (self-hosted),
+// maar staat ook toe dat de GitHub Pages-versie tijdelijk tegen een eigen
+// server aan praat — vandaar permissieve CORS in plaats van same-origin-only.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, X-Access-Code, X-Admin-Token');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, '../public');
 app.use(express.static(PUBLIC_DIR));
 

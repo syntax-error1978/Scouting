@@ -188,8 +188,25 @@
     </div>
     <button id="saveSettings" class="btn primary">Opslaan</button>
     <hr>
+    <h3>Server (delen met collega's)</h3>
+    <p class="muted" id="serverStatus"></p>
+    <div id="serverConnectForm">
+      <label>Server-URL
+        <input type="url" id="serverUrl" placeholder="https://scouting.plantworld.nl" inputmode="url">
+      </label>
+      <label>Toegangscode
+        <input type="text" id="serverCode" placeholder="bijv. a1b2c3d4">
+      </label>
+      <button id="btnServerConnect" class="btn primary">Verbinden</button>
+    </div>
+    <div id="serverConnectedActions" class="btn-row hidden">
+      <button id="btnSyncNow" class="btn secondary">🔄 Sync nu</button>
+      <button id="btnServerDisconnect" class="btn danger">Loskoppelen</button>
+    </div>
+    <hr>
     <h3>Afdelingen &amp; indeling</h3>
     <p class="muted">Pas de afdelingen, aantal vakken en Duponchelia-vangbakken aan naar jouw kwekerij. Een naam mag vrij gekozen worden.</p>
+    <p class="muted hidden" id="deptServerHint">Wijzigingen hier worden direct naar de server gestuurd — hiervoor is een internetverbinding nodig.</p>
     <div id="deptManageList" class="dept-manage-list"></div>
     <button id="btnAddDept" class="btn secondary">+ Afdeling toevoegen</button>
     <hr>
