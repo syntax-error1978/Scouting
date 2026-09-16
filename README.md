@@ -21,6 +21,9 @@ Plaagscouting-app voor op de telefoon, voor gebruik tijdens het scouten van plaa
   totalen per insect, aandachtspunten (kaarten/feromonen die aan vervanging toe zijn) en een
   grafiek per vak en per Duponchelia-vangbak. De volledige cijfers per vak staan alleen in de
   e-mail/CSV-export, niet los op het scherm.
+- **Heatmap-plattegrond**: bij "Insecten per vak" kan gewisseld worden tussen de staafgrafiek en een
+  plattegrond-heatmap (één cel per vak, per afdeling), gekleurd van geen kleur tot pastel rood naar
+  gelang de insectendruk. Wisselen kan met de knoppen of door te swipen op mobiel.
 - **Delen/mailen**: de analyse kan als tekst + CSV-bestand gedeeld worden via het native deelvenster
   van de telefoon (WhatsApp, Mail, etc.), met een e-mail-fallback als delen niet beschikbaar is.
 - **Alles lokaal**: alle data wordt opgeslagen in de browser op de telefoon zelf (geen server,
@@ -58,3 +61,11 @@ browsergegevens gewist worden. Maak daarom regelmatig een back-up:
 ⚙️ Instellingen → **Back-up exporteren** (downloadt een `.json`-bestand) en bewaar dit ergens
 veilig (bijv. mail het naar jezelf of zet het in een cloudmap). Via **Back-up importeren** kun je
 een eerder gemaakte back-up terugzetten, bijvoorbeeld op een nieuwe telefoon.
+
+## Zelf hosten (in ontwikkeling)
+
+Meerdere collega's met een eigen kwekerij willen de app gaan gebruiken. Deze branch is de
+werkbranch voor de doorontwikkeling richting zelf hosten op de eigen (Docker-)server van
+Plantworld, met als stip op de horizon gedeelde data per kwekerij in plaats van alleen lokale
+opslag per telefoon. Zie het architectuurvoorstel dat hierover met ICT is gedeeld voor de
+overwogen aanpak (server, database, toegang en fasering).

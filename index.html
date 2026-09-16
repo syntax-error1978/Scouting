@@ -124,8 +124,22 @@
   <section class="card">
     <h2>Insecten per vak</h2>
     <p class="muted">Volledige cijfers per vak staan in de e-mail/export hieronder.</p>
-    <div class="chart-wrap">
-      <svg id="chartPerVak" class="chart"></svg>
+    <div class="view-toggle" role="tablist" aria-label="Weergave">
+      <button class="view-toggle-btn active" data-view="chart" role="tab" aria-selected="true">📊 Grafiek</button>
+      <button class="view-toggle-btn" data-view="heatmap" role="tab" aria-selected="false">🗺️ Heatmap</button>
+    </div>
+    <div class="swipe-area" id="vakViewsSwipe">
+      <div class="chart-wrap" id="vakChartView">
+        <svg id="chartPerVak" class="chart"></svg>
+      </div>
+      <div class="heatmap-wrap hidden" id="vakHeatmapView">
+        <div id="vakHeatmap"></div>
+        <div class="heatmap-legend">
+          <span>Geen</span>
+          <span class="heatmap-legend-bar" aria-hidden="true"></span>
+          <span>Veel</span>
+        </div>
+      </div>
     </div>
     <div class="table-wrap hidden">
       <table id="vakTable">
