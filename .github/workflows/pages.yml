@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "claude/analyse-heatmap"]
   workflow_dispatch:
 
 permissions:
@@ -14,6 +14,11 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+# TEMPORARY: while the heatmap feature is being tested, this workflow
+# deploys main at the site root AND this feature branch under /preview/,
+# so the two can be compared without touching the live production site.
+# Once the feature branch is merged (or abandoned) and deleted, revert
+# this file to the single-checkout version that only deploys main.
 jobs:
   deploy:
     environment:
@@ -21,17 +26,27 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          ref: main
+          path: site-main
+      - name: Checkout preview branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/analyse-heatmap
+          path: site-preview
       - name: Setup Pages
         uses: actions/configure-pages@v5
         with:
           enablement: true
       - name: Assemble site
         run: |
-          mkdir -p _site
-          cp index.html style.css app.js manifest.webmanifest sw.js _site/
-          cp -r icons _site/icons
+          mkdir -p _site/preview
+          cp site-main/index.html site-main/style.css site-main/app.js site-main/manifest.webmanifest site-main/sw.js _site/
+          cp -r site-main/icons _site/icons
+          cp site-preview/index.html site-preview/style.css site-preview/app.js site-preview/manifest.webmanifest site-preview/sw.js _site/preview/
+          cp -r site-preview/icons _site/preview/icons
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

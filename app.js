@@ -584,6 +584,45 @@ function renderChart(rows) {
   svg.innerHTML = `<g style="color:var(--muted)">${bars}</g>`;
 }
 
+function gridColumns(n) {
+  return Math.max(1, Math.ceil(Math.sqrt(n)));
+}
+
+// Plattegrond-achtige heatmap: één cel per vak, gegroepeerd per afdeling,
+// gekleurd van geen kleur (0) tot pastel rood (het hoogste aantal in beeld).
+function renderVakHeatmap(rows) {
+  const el = document.getElementById('vakHeatmap');
+  if (!rows.length) { el.innerHTML = '<p class="muted">Geen data.</p>'; return; }
+  const maxTotal = Math.max(1, ...rows.map(r => r.total));
+
+  const groups = [];
+  const byDep = new Map();
+  rows.forEach(r => {
+    if (!byDep.has(r.dep)) {
+      const g = { depName: r.depName, items: [] };
+      byDep.set(r.dep, g);
+      groups.push(g);
+    }
+    byDep.get(r.dep).items.push(r);
+  });
+
+  el.innerHTML = groups.map(g => {
+    const cols = gridColumns(g.items.length);
+    const cells = g.items.map(r => {
+      const intensity = r.total > 0 ? Math.min(1, r.total / maxTotal) : 0;
+      const bg = r.total > 0 ? `rgba(224,90,90,${(0.15 + intensity * 0.65).toFixed(2)})` : 'transparent';
+      const title = `Vak ${r.num}: ${r.total} (T${r.sums.trips} L${r.sums.luis} W${r.sums.wolluis} Wv${r.sums.witteVlieg})`;
+      return `<div class="heatmap-cell" style="background:${bg}" title="${escapeHtml(title)}">${r.num}</div>`;
+    }).join('');
+    return `
+      <div class="heatmap-dept">
+        ${groups.length > 1 ? `<div class="heatmap-dept-title">${escapeHtml(g.depName)}</div>` : ''}
+        <div class="heatmap-grid" style="grid-template-columns:repeat(${cols}, 1fr)">${cells}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderDuponcheliaAnalyse(deps, cutoff) {
   const el = document.getElementById('duponcheliaAnalyse');
   const rows = [];
@@ -635,6 +674,7 @@ function renderAnalyse() {
   renderTotals(rows);
   renderAttention(deps);
   renderVakTableAndChart(rows);
+  renderVakHeatmap(rows);
   renderDuponcheliaAnalyse(deps, cutoff);
 }
 
@@ -749,6 +789,44 @@ function initShareButtons() {
     const cutoff = getPeriodCutoff();
     downloadCsvBlob(buildCsv(deps, cutoff), `scouting-analyse-${todayStr()}.csv`);
   });
+}
+
+/* ---------- Grafiek/heatmap toggle (Insecten per vak) ---------- */
+
+function setVakView(view) {
+  document.getElementById('vakChartView').classList.toggle('hidden', view !== 'chart');
+  document.getElementById('vakHeatmapView').classList.toggle('hidden', view !== 'heatmap');
+  document.querySelectorAll('.view-toggle-btn').forEach(b => {
+    const active = b.dataset.view === view;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-selected', String(active));
+  });
+}
+
+function initVakViewToggle() {
+  document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => setVakView(btn.dataset.view));
+  });
+
+  const swipeArea = document.getElementById('vakViewsSwipe');
+  let startX = 0, startY = 0, tracking = false;
+  swipeArea.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+  swipeArea.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      const current = document.querySelector('.view-toggle-btn.active').dataset.view;
+      if (dx < 0 && current === 'chart') setVakView('heatmap');
+      if (dx > 0 && current === 'heatmap') setVakView('chart');
+    }
+  }, { passive: true });
 }
 
 /* ---------- Afdelingen beheren (Instellingen) ---------- */
@@ -1004,6 +1082,7 @@ function init() {
   initTellingForm();
   initAnalyseSelectors();
   initShareButtons();
+  initVakViewToggle();
   initDeptManagement();
   initSettingsModal();
   initServiceWorker();
