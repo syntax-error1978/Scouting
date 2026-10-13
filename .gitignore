@@ -1,0 +1,6 @@
+# ML: datasets, trainingsresultaten en modellen niet in git
+ml/runs/
+ml/voorspellingen/
+ml/**/__pycache__/
+*.pt
+*.onnx

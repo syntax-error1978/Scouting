@@ -58,3 +58,8 @@ browsergegevens gewist worden. Maak daarom regelmatig een back-up:
 ⚙️ Instellingen → **Back-up exporteren** (downloadt een `.json`-bestand) en bewaar dit ergens
 veilig (bijv. mail het naar jezelf of zet het in een cloudmap). Via **Back-up importeren** kun je
 een eerder gemaakte back-up terugzetten, bijvoorbeeld op een nieuwe telefoon.
+
+## Vangkaart-AI (in ontwikkeling)
+
+In de map [`ml/`](ml/README.md) staan scripts en een handleiding om zelf een model te trainen dat
+insecten op vangkaartfoto's herkent en telt. Dit is nog niet in de app ingebouwd.
