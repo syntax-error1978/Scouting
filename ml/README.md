@@ -43,7 +43,32 @@ stukjes met wolluis uit extra foto's.
 
 Zet alle foto's in één map, bijvoorbeeld `~/vangkaarten/`.
 
-## 2. Installatie (Nobara/Fedora, AMD RX 6700)
+## 2. Installatie
+
+### 2a. NVIDIA-kaart (bv. laptop met RTX 4070)
+
+```bash
+# Driver controleren: je kaart moet in de lijst staan
+nvidia-smi
+
+# Python-omgeving met een door PyTorch ondersteunde Python-versie
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv --python 3.12 ~/vangkaart-env
+source ~/vangkaart-env/bin/activate
+
+# PyTorch (de standaardversie bevat CUDA al) en de rest
+uv pip install torch torchvision
+uv pip install -r requirements.txt
+
+# Test, verwacht: True  NVIDIA GeForce RTX 4070 Laptop GPU
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+Op een laptop: stekker erin, energieprofiel op *Prestaties*, en voeg bij het trainen `workers=4`
+toe als je 16 GB werkgeheugen hebt. Met 8 GB videogeheugen: `yolo26s` met `batch=16`, of
+`yolo26m` met `batch=8`.
+
+### 2b. AMD-kaart (Nobara/Fedora, RX 6700)
 
 ```bash
 # GPU-rechten (daarna uitloggen en opnieuw inloggen)
