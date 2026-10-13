@@ -62,4 +62,5 @@ een eerder gemaakte back-up terugzetten, bijvoorbeeld op een nieuwe telefoon.
 ## Vangkaart-AI (in ontwikkeling)
 
 In de map [`ml/`](ml/README.md) staan scripts en een handleiding om zelf een model te trainen dat
-insecten op vangkaartfoto's herkent en telt. Dit is nog niet in de app ingebouwd.
+insecten op vangkaartfoto's herkent en telt. Dit is nog niet in de app ingebouwd. Zie
+[`ROADMAP.md`](ROADMAP.md) voor het totaalplan, tot en met automatische camera-units in de kas.
